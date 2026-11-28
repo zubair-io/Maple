@@ -55,36 +55,33 @@ final class PanoMemoryModelTests: XCTestCase {
         XCTAssertEqual(Double(height) / Double(width), 40_000 / 9_000, accuracy: 0.01)
     }
 
+    /// The Mac footprints #6141 measured at 18 threads.
     func testCalibrationCoversTheMeasuredStages() {
-        let gib = Double(1 << 30)
+        let mac = PanoMemoryModel(threads: 18)
         let pano00 = PanoStitchSizes(
-            canvasWidth: 12_315, canvasHeight: 12_760, largestFramePixels: 11_648 * 8_640, frameCount: 3, scratchBytes: 0)
-        XCTAssertGreaterThanOrEqual(model.headBytes(pano00), 1_263 << 20)
-        XCTAssertGreaterThanOrEqual(model.compositeBytes(pano00, canvasWidth: 12_315), 593 << 20)
-        XCTAssertGreaterThanOrEqual(model.compositeBytes(pano00, canvasWidth: 12_315), Int(1.2 * gib))
-        XCTAssertGreaterThanOrEqual(model.headBytes(pano01), Int(1.8 * gib))
-        XCTAssertGreaterThanOrEqual(model.compositeBytes(pano01, canvasWidth: 26_981), Int(2.8 * gib))
+            canvasWidth: 12_313, canvasHeight: 12_762, largestFramePixels: 11_648 * 8_640, frameCount: 3, scratchBytes: 0)
+        XCTAssertGreaterThanOrEqual(mac.headBytes(pano00), 2_430 << 20)
+        XCTAssertGreaterThanOrEqual(mac.compositeBytes(pano00, canvasWidth: 12_313), 1_155 << 20)
+        let pano01 = PanoStitchSizes(
+            canvasWidth: 26_981, canvasHeight: 9_487, largestFramePixels: 20_813_856, frameCount: 21, scratchBytes: 0)
+        XCTAssertGreaterThanOrEqual(mac.headBytes(pano01), 1_402 << 20)
+        XCTAssertGreaterThanOrEqual(mac.compositeBytes(pano01, canvasWidth: 26_981), 1_695 << 20)
+        let ring40 = PanoStitchSizes(
+            canvasWidth: 82_437, canvasHeight: 3_105, largestFramePixels: 8_000 * 6_000, frameCount: 40, scratchBytes: 0)
+        XCTAssertGreaterThanOrEqual(mac.headBytes(ring40), 2_268 << 20)
+        XCTAssertGreaterThanOrEqual(mac.compositeBytes(ring40, canvasWidth: 82_437), 2_312 << 20)
     }
 
-    /// #5891 re-fitted only the server's calibration: the sheet's estimates
-    /// are the #5555 numbers to the byte, and a 100 MP set an iPad with
-    /// 2 GB available stitches at full size still does, where the server's
-    /// Mac-fitted calibration would refuse it outright.
-    func testTheAppleCalibrationIsUnchangedByTheServerRefit() {
+    /// #6141 gives the device the server's Mac-fitted calibration, so the
+    /// sheet's estimates are raw-core's to the byte.
+    func testTheAppleCalibrationIsTheServers() {
         XCTAssertEqual(model.calibration, .apple)
-        XCTAssertEqual(model.headBytes(pano01), 21 * (80 << 20) + 12 * 20_813_856)
-        XCTAssertEqual(model.headBytes(pano01), 2_011_373_952)
-        XCTAssertEqual(model.compositeBytes(pano01, canvasWidth: 26_981), 3_197_189_310)
-        let pano00 = PanoStitchSizes(
-            canvasWidth: 12_315, canvasHeight: 12_760, largestFramePixels: 11_648 * 8_640, frameCount: 3, scratchBytes: 0)
-        XCTAssertEqual(model.estimatedPeakBytes(sizes: pano00, canvasWidth: 12_315), 1_459_322_880)
-        let available = 2_000_000_000
-        XCTAssertEqual(model.fit(sizes: pano00, availableBytes: available), .fullFits(estimatedBytes: 1_459_322_880))
-        // Same bytes raw-core's server profile prints for pano_01 × 21 (1.96 GB).
-        XCTAssertEqual(PanoMemoryModel(calibration: .server).headBytes(pano01), 21 * 13 * 2_560_000 + 226_000 * 5_587)
-        guard case .tooLarge = PanoMemoryModel(calibration: .server).fit(sizes: pano00, availableBytes: available) else {
-            return XCTFail("the server calibration should not fit pano_00 in 2 GB")
-        }
+        XCTAssertEqual(PanoMemoryCalibration.apple, .server)
+        XCTAssertEqual(model.headBytes(pano01), (400 << 20) + 21 * (24 << 20) + 32 * 20_813_856)
+        let mac = PanoMemoryModel(threads: 18)
+        let compositeBase = (768 << 20) + 21 * (16 << 20) + 6 * 20_813_856 + 18 * (8 << 20)
+        XCTAssertEqual(mac.compositeBytes(pano01, canvasWidth: 26_981), compositeBase + 3 * 26_981 * 9_488)
+        XCTAssertEqual(mac.compositeBytes(pano01, canvasWidth: 0), compositeBase)
     }
 
     private let phoneModel = PanoMemoryModel(smallerDefaultFraction: PanoMemoryModel.phoneSmallerDefaultFraction)

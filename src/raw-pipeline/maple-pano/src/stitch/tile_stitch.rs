@@ -289,8 +289,12 @@ pub(super) fn tile_tail(
         opts.boundary_warp,
         opts.auto_crop,
         |_, _| opts.max_canvas_px,
-        &|canvas_width| {
-            super::memory::admit_composite(full_dims.iter().copied(), canvas_width, opts)
+        &|canvas_width, canvas_height| {
+            super::memory::admit_composite(
+                full_dims.iter().copied(),
+                (canvas_width, canvas_height),
+                opts,
+            )
         },
         sink,
         &mut progress,
@@ -339,7 +343,7 @@ pub(super) struct TilePlaced {
 /// serves and of the coordinates `graph`'s matches are in — full
 /// resolution for the stitch, proxy resolution for the preview (#4578).
 /// `canvas_cap_px` maps the solved natural canvas size to its pixel cap;
-/// `admit_canvas` may refuse the capped canvas by its width before anything
+/// `admit_canvas` may refuse the capped canvas by its size before anything
 /// is composited (#5835).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn place_and_composite(
@@ -351,7 +355,7 @@ pub(super) fn place_and_composite(
     boundary_warp: f64,
     auto_crop: bool,
     canvas_cap_px: impl FnOnce(u32, u32) -> usize,
-    admit_canvas: &dyn Fn(u32) -> Result<(), StitchError>,
+    admit_canvas: &dyn Fn(u32, u32) -> Result<(), StitchError>,
     sink: &mut dyn CanvasSink,
     progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
@@ -390,7 +394,7 @@ pub(super) fn place_and_composite(
     let cap_px = canvas_cap_px(solved_canvas.width, solved_canvas.height);
     let (poses, canvas_spec) = crate::tile::apply_canvas_cap(solved_poses, solved_canvas, cap_px)
         .map_err(|e| StitchError::BaSolve(format!("tile placement: {e}")))?;
-    admit_canvas(canvas_spec.width)?;
+    admit_canvas(canvas_spec.width, canvas_spec.height)?;
     let solve_s = t4.elapsed().as_secs_f64();
     progress(4, 1.0);
 

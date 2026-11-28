@@ -22,13 +22,16 @@ const FRAMES: u32 = 3;
 const FRAME_WIDTH: u32 = 640;
 const FRAME_HEIGHT: u32 = 480;
 
-const LOAD: PanoStitchLoad = PanoStitchLoad {
-    frame_count: FRAMES as u64,
-    largest_frame_px: (FRAME_WIDTH * FRAME_HEIGHT) as u64,
-    proxy_long_edge: PANO_PROXY_FITTED_LONG_EDGE,
-    ml_matcher: false,
-    profile: PanoMemoryProfile::Server,
-};
+fn load() -> PanoStitchLoad {
+    PanoStitchLoad {
+        frame_count: FRAMES as u64,
+        largest_frame_px: (FRAME_WIDTH * FRAME_HEIGHT) as u64,
+        proxy_long_edge: PANO_PROXY_FITTED_LONG_EDGE,
+        threads: rayon::current_num_threads() as u64,
+        ml_matcher: false,
+        profile: PanoMemoryProfile::Server,
+    }
+}
 
 fn generate_ring(dir: &Path) -> Vec<PathBuf> {
     let status = Command::new(env!("CARGO_BIN_EXE_pano-gen-fixture"))
@@ -105,7 +108,7 @@ fn refusal(run: &Run) -> (u64, u64) {
 fn a_limit_under_the_head_refuses_before_any_frame_is_decoded() {
     let dir = tempfile::tempdir().expect("tempdir");
     let inputs = generate_ring(dir.path());
-    let head = LOAD.head_bytes();
+    let head = load().head_bytes();
 
     let refused = run(&inputs, Some(head - 1));
 
@@ -131,9 +134,9 @@ fn a_limit_under_the_composite_refuses_once_the_canvas_is_solved_and_composites_
     assert_eq!(unlimited.sink.canvas, Some((width, height)));
     assert_eq!(unlimited.sink.rows, height);
 
-    let composite = LOAD.composite_bytes(u64::from(width));
+    let composite = load().composite_bytes(u64::from(width), u64::from(height));
     assert!(
-        composite > LOAD.head_bytes(),
+        composite > load().head_bytes(),
         "the canvas must cost more than the head for this gate to reach the second check"
     );
 

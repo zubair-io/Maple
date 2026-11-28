@@ -34,18 +34,18 @@ pub(super) fn admit_preview(inputs: &[PathBuf], opts: &StitchOptions) -> Result<
     )
 }
 
-/// Refuse when compositing frames of `full_dims` onto a canvas
-/// `canvas_width` pixels wide would exceed the limit.
+/// Refuse when compositing frames of `full_dims` onto a canvas of
+/// `(width, height)` pixels would exceed the limit.
 pub(super) fn admit_composite(
     full_dims: impl IntoIterator<Item = (u32, u32)>,
-    canvas_width: u32,
+    (canvas_width, canvas_height): (u32, u32),
     opts: &StitchOptions,
 ) -> Result<(), StitchError> {
     let Some(limit) = opts.memory_limit_bytes else {
         return Ok(());
     };
     within(
-        load(full_dims, opts).composite_bytes(u64::from(canvas_width)),
+        load(full_dims, opts).composite_bytes(u64::from(canvas_width), u64::from(canvas_height)),
         limit,
     )
 }
@@ -61,6 +61,7 @@ fn load(full_dims: impl IntoIterator<Item = (u32, u32)>, opts: &StitchOptions) -
         frame_count,
         largest_frame_px,
         proxy_long_edge: u64::from(opts.proxy_long_edge),
+        threads: rayon::current_num_threads() as u64,
         ml_matcher: opts.feature_engine.is_ml(),
         profile: opts.memory_profile,
     }
@@ -86,15 +87,19 @@ mod tests {
         }
     }
 
-    fn composite_bytes(canvas_width: u32) -> u64 {
-        load(PANO_01, &StitchOptions::default()).composite_bytes(u64::from(canvas_width))
+    const FULL: (u32, u32) = (26_981, 9_488);
+    const CAPPED: (u32, u32) = (13_490, 4_744);
+
+    fn composite_bytes((width, height): (u32, u32)) -> u64 {
+        load(PANO_01, &StitchOptions::default())
+            .composite_bytes(u64::from(width), u64::from(height))
     }
 
     #[test]
     fn the_composite_is_admitted_at_its_estimate_and_refused_one_byte_under() {
-        let needed = composite_bytes(26_981);
-        assert!(admit_composite(PANO_01, 26_981, &limited(needed)).is_ok());
-        match admit_composite(PANO_01, 26_981, &limited(needed - 1)) {
+        let needed = composite_bytes(FULL);
+        assert!(admit_composite(PANO_01, FULL, &limited(needed)).is_ok());
+        match admit_composite(PANO_01, FULL, &limited(needed - 1)) {
             Err(StitchError::InsufficientMemory {
                 needed: reported,
                 limit,
@@ -108,9 +113,9 @@ mod tests {
 
     #[test]
     fn a_narrower_canvas_fits_a_limit_the_full_one_does_not() {
-        let opts = limited(composite_bytes(13_490));
-        assert!(admit_composite(PANO_01, 13_490, &opts).is_ok());
-        assert!(admit_composite(PANO_01, 26_981, &opts).is_err());
+        let opts = limited(composite_bytes(CAPPED));
+        assert!(admit_composite(PANO_01, CAPPED, &opts).is_ok());
+        assert!(admit_composite(PANO_01, FULL, &opts).is_err());
     }
 
     #[test]
@@ -131,7 +136,7 @@ mod tests {
         };
         let loaded = load(frames, &opts);
         assert!(loaded.head_bytes() > rgb_f32_proxies);
-        assert!(loaded.composite_bytes(0) > rgb_f32_proxies);
+        assert!(loaded.composite_bytes(0, 0) > rgb_f32_proxies);
         assert!(matches!(
             within(loaded.head_bytes(), 3_000_000_000),
             Err(StitchError::InsufficientMemory { .. })
@@ -139,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn the_apple_profile_costs_with_the_apple_calibration() {
+    fn the_stitch_options_choose_the_profile() {
         use raw_core::pano_memory::PanoMemoryProfile;
         let apple = StitchOptions {
             memory_profile: PanoMemoryProfile::Apple,
@@ -151,7 +156,6 @@ mod tests {
         );
         assert_eq!(server.profile, PanoMemoryProfile::Server);
         assert_eq!(device.profile, PanoMemoryProfile::Apple);
-        assert_ne!(server.head_bytes(), device.head_bytes());
     }
 
     #[test]
@@ -159,7 +163,7 @@ mod tests {
         let missing = [PathBuf::from("/nonexistent/a.dng")];
         assert!(admit_head(&missing, &StitchOptions::default()).is_ok());
         assert!(admit_preview(&missing, &StitchOptions::default()).is_ok());
-        assert!(admit_composite(PANO_01, u32::MAX, &StitchOptions::default()).is_ok());
+        assert!(admit_composite(PANO_01, (u32::MAX, u32::MAX), &StitchOptions::default()).is_ok());
     }
 
     #[test]

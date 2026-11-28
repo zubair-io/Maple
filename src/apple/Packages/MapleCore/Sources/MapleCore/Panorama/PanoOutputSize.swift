@@ -56,6 +56,9 @@ public struct PanoStitchSizes: Sendable, Equatable {
         useful(width: width, scale: Double(width) / Double(canvasWidth))
     }
 
+    /// Canvas height per column.
+    var aspect: Double { Double(canvasHeight) / Double(canvasWidth) }
+
     var smallestUsefulCanvasPixels: Int {
         let scale = Double(Self.smallestUsefulLongEdge) / Double(max(canvasWidth, canvasHeight))
         return Int((Double(canvasWidth) * scale).rounded(.up)) * Int((Double(canvasHeight) * scale).rounded(.up))
@@ -107,8 +110,8 @@ public enum PanoMemoryFit: Sendable, Equatable {
 ///   (features, matches, per-frame solve state) plus terms for the largest
 ///   frame (the banded decode and refinement windows);
 /// - the composite — the per-frame state still held, terms for the largest
-///   frame (its source taps), and a term proportional to canvas *width*: the
-///   composite streams fixed-height strips whose buffers are output rows.
+///   frame (its source taps), terms for the canvas's width and pixels, and
+///   one for each worker thread's strip buffers.
 ///
 /// The model and its calibrations live in raw-core's `pano_memory`, which
 /// `maple-pano` also refuses an over-limit server stitch with (#5835); they
@@ -131,10 +134,17 @@ public struct PanoMemoryModel: Sendable, Equatable {
     public let smallerDefaultFraction: Double?
     /// The constants the model is evaluated with.
     public let calibration: PanoMemoryCalibration
+    /// The worker threads the stitch composites on: the Rust core's pool,
+    /// one per active processor.
+    public let threads: Int
 
-    public init(smallerDefaultFraction: Double? = nil, calibration: PanoMemoryCalibration = .apple) {
+    public init(
+        smallerDefaultFraction: Double? = nil, calibration: PanoMemoryCalibration = .apple,
+        threads: Int = ProcessInfo.processInfo.activeProcessorCount
+    ) {
         self.smallerDefaultFraction = smallerDefaultFraction
         self.calibration = calibration
+        self.threads = threads
     }
 
     public func estimatedPeakBytes(sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
@@ -155,8 +165,7 @@ public struct PanoMemoryModel: Sendable, Equatable {
         let head = headBytes(sizes)
         let budgets = full > hardBudget ? [defaultBudget, hardBudget] : [defaultBudget]
         for budget in budgets where head <= budget {
-            let width = (budget - compositeBaseBytes(sizes)) / calibration.compositeBytesPerCanvasColumn
-            if let canvas = sizes.fittedCanvas(width: width) {
+            if let canvas = sizes.fittedCanvas(width: widestCanvas(sizes, compositeBudget: budget)) {
                 return .fitted(estimatedFullBytes: full, canvas: canvas)
             }
         }
@@ -164,12 +173,27 @@ public struct PanoMemoryModel: Sendable, Equatable {
     }
 
     func compositeBytes(_ sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
-        compositeBaseBytes(sizes) + canvasWidth * calibration.compositeBytesPerCanvasColumn
+        let canvasPixels = sizes.canvasWidth > 0 ? canvasWidth * canvasWidth * sizes.canvasHeight / sizes.canvasWidth : 0
+        return compositeBaseBytes(sizes) + canvasWidth * calibration.compositeBytesPerCanvasColumn
+            + canvasPixels * calibration.compositeBytesPerCanvasPixel
+    }
+
+    /// The widest canvas, at `sizes`' aspect, whose composite fits `budget`:
+    /// the root of `pixel × aspect × W² + column × W = budget − base`.
+    private func widestCanvas(_ sizes: PanoStitchSizes, compositeBudget budget: Int) -> Int {
+        let room = Double(budget - compositeBaseBytes(sizes))
+        guard room > 0 else { return 0 }
+        let quadratic = Double(calibration.compositeBytesPerCanvasPixel) * sizes.aspect
+        let linear = Double(calibration.compositeBytesPerCanvasColumn)
+        guard quadratic > 0 else { return linear > 0 ? Int((room / linear).rounded(.down)) : sizes.canvasWidth }
+        let root = ((linear * linear + 4 * quadratic * room).squareRoot() - linear) / (2 * quadratic)
+        return Int(root.rounded(.down))
     }
 
     func headBytes(_ sizes: PanoStitchSizes) -> Int {
         phaseBytes(
             sizes,
+            fixed: calibration.headBytesFixed,
             perFrame: calibration.headBytesPerFrame,
             perProxyPixel: calibration.headBytesPerFrameProxyPixel,
             perPixel: calibration.headBytesPerLargestFramePixel,
@@ -179,17 +203,18 @@ public struct PanoMemoryModel: Sendable, Equatable {
     private func compositeBaseBytes(_ sizes: PanoStitchSizes) -> Int {
         phaseBytes(
             sizes,
+            fixed: calibration.compositeBytesFixed + threads * calibration.compositeBytesPerThread,
             perFrame: calibration.compositeBytesPerFrame,
             perProxyPixel: calibration.compositeBytesPerFrameProxyPixel,
             perPixel: calibration.compositeBytesPerLargestFramePixel,
             perColumn: calibration.compositeBytesPerLargestFrameColumn)
     }
 
-    private func phaseBytes(_ sizes: PanoStitchSizes, perFrame: Int, perProxyPixel: Int, perPixel: Int, perColumn: Int)
-        -> Int
-    {
+    private func phaseBytes(
+        _ sizes: PanoStitchSizes, fixed: Int, perFrame: Int, perProxyPixel: Int, perPixel: Int, perColumn: Int
+    ) -> Int {
         let proxyPixels = min(sizes.largestFramePixels, PanoMemoryCalibration.proxyPixelsMax)
-        return sizes.frameCount * (perFrame + proxyPixels * perProxyPixel)
+        return fixed + sizes.frameCount * (perFrame + proxyPixels * perProxyPixel)
             + sizes.largestFramePixels * perPixel
             + Self.frameColumns(sizes.largestFramePixels) * perColumn
     }
