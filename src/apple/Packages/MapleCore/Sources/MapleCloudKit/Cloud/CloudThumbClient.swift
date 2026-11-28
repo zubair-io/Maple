@@ -36,14 +36,15 @@ public actor CloudThumbClient {
   /// every view revalidate (#6017).
   public func thumb(absPath: String, version: String? = nil) async throws -> Data {
     let url = try await addresses.url(route: "thumb", absPath: absPath)
-    return try await fetch(version.map { Self.versioned(url, $0) } ?? url)
+    return try await fetch(version.map { Self.versioned(url, $0) } ?? url, keepingHTTPCopy: false)
   }
 
   static func versioned(_ url: URL, _ version: String) -> URL {
     guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
       return url
     }
-    components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "v", value: version)]
+    components.queryItems =
+      (components.queryItems ?? []) + [URLQueryItem(name: "v", value: version)]
     return components.url ?? url
   }
 
@@ -73,8 +74,12 @@ public actor CloudThumbClient {
     }
   }
 
-  private func fetch(_ url: URL) async throws -> Data {
-    let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+  private func fetch(_ url: URL, keepingHTTPCopy: Bool = true) async throws -> Data {
+    let request = URLRequest(url: url)
+    let (data, resp) =
+      keepingHTTPCopy
+      ? try await httpClient.data(for: request)
+      : try await httpClient.dataWithoutResponseCache(for: request)
     let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
     guard status == 200 else {
       throw NSError(

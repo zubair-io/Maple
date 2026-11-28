@@ -190,11 +190,14 @@ public actor ThumbnailLoader {
     return await awaitThumbnail(task)
   }
 
+  nonisolated static let readabilityChecks = OSAllocatedUnfairLock(initialState: 0)
+
   /// Check that ImageIO can decode the cached image, not just read its header.
   /// Truncated AVIFs can expose valid dimensions while failing at pixel decode;
   /// accepting those bytes strands the grid and preview on placeholders. Decode
   /// only a tiny eager thumbnail here so the cache check stays inexpensive.
   nonisolated static func isUsableImageData(_ data: Data) -> Bool {
+    readabilityChecks.withLock { $0 += 1 }
     guard
       let source = CGImageSourceCreateWithData(data as CFData, nil),
       CGImageSourceGetCount(source) > 0,

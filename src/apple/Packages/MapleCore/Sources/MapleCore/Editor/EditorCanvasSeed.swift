@@ -30,14 +30,15 @@ public enum EditorCanvasSeed {
       return cached
     }
     let key = asset.stableID ?? asset.displayName
-    if let cached = await thumbs.thumbnailData(forKey: key) {
+    let ref = ImageRef(
+      id: "fs:\(catalog.absPath)", displayName: asset.displayName, url: nil)
+    let token = server?.thumbToken(for: ref)
+    if let cached = await thumbs.thumbnailData(forKey: key, currentToken: token) {
       return cached
     }
     guard !Task.isCancelled, let server else { return nil }
-    let ref = ImageRef(
-      id: "fs:\(catalog.absPath)", displayName: asset.displayName, url: nil)
     guard let fetched = (try? await server.thumb(for: ref)) ?? nil else { return nil }
-    await thumbs.storeThumbnailData(fetched, forKey: key)
+    await thumbs.storeThumbnailData(fetched, forKey: key, token: token)
     return fetched
   }
 

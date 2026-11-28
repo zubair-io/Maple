@@ -19,7 +19,56 @@ enum LocalDerivativeSourceStamp {
   static func isFresh(_ derivativeURL: URL, signature: String) -> Bool {
     guard let stored = try? String(contentsOf: stampURL(for: derivativeURL), encoding: .utf8)
     else { return false }
-    return stored == signature
+    return isFresh(stored: stored, signature: signature)
+  }
+
+  /// What a thumbnail read learned from its stamp: whether it is fresh, and the
+  /// derivative's own size and modification time when this app recorded them.
+  struct Reading {
+    let isFresh: Bool
+    let ownWrite: String?
+
+    static let stale = Reading(isFresh: false, ownWrite: nil)
+  }
+
+  static func read(_ derivativeURL: URL, signature: String) -> Reading {
+    guard let stored = try? String(contentsOf: stampURL(for: derivativeURL), encoding: .utf8),
+      isFresh(stored: stored, signature: signature)
+    else { return .stale }
+    let proof = stored.dropFirst(signature.count).dropFirst(ownWriteMarker.count)
+    return Reading(isFresh: true, ownWrite: stored == signature ? nil : String(proof))
+  }
+
+  /// True when the derivative still has the size and modification time its
+  /// writer recorded. Call after reading the bytes, so a replacement that lands
+  /// between the read and the stat can only make the file look unproven.
+  static func fileMatches(_ ownWrite: String, at derivativeURL: URL) -> Bool {
+    ownWrite == ownWriteStamp(at: derivativeURL)
+  }
+
+  static func recordOwnWrite(_ derivativeURL: URL, for assetURL: URL) {
+    try? recordOwnWrite(derivativeURL, sourceSignature: signature(for: assetURL))
+  }
+
+  /// For a derivative this app has just written atomically from its own encoder.
+  static func recordOwnWrite(_ derivativeURL: URL, sourceSignature: String) throws {
+    guard let ownWrite = ownWriteStamp(at: derivativeURL) else {
+      return try record(derivativeURL, sourceSignature: sourceSignature)
+    }
+    try (sourceSignature + ownWriteMarker + ownWrite).write(
+      to: stampURL(for: derivativeURL), atomically: true, encoding: .utf8)
+  }
+
+  private static let ownWriteMarker = "|own:"
+
+  private static func isFresh(stored: String, signature: String) -> Bool {
+    stored == signature || stored.hasPrefix(signature + ownWriteMarker)
+  }
+
+  private static func ownWriteStamp(at derivativeURL: URL) -> String? {
+    PlainFileStat.read(atPath: derivativeURL.path).map {
+      "\($0.size):\($0.modified.timeIntervalSinceReferenceDate.bitPattern)"
+    }
   }
 
   static func record(_ derivativeURL: URL, for assetURL: URL) {

@@ -30,8 +30,11 @@ extension ThumbnailLoader {
     guard !Task.isCancelled else { return nil }
     let key = asset.stableID ?? asset.displayName
 
-    // 1. Disk-cache hit.
-    if let cached = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) {
+    // 1. Disk-cache hit, for the token the source's latest listing carries.
+    let token = Self.thumbToken(
+      of: source, forStableID: asset.stableID, displayName: asset.displayName)
+    if let cached = await ThumbnailDiskCache.shared.thumbnailData(forKey: key, currentToken: token)
+    {
       return cached
     }
 
@@ -79,6 +82,14 @@ extension ThumbnailLoader {
     return await awaitThumbnail(task)
   }
 
+  private nonisolated static func thumbToken(
+    of source: (any ImageSource)?, forStableID stableID: String?, displayName: String
+  ) -> String? {
+    guard let source, let stableID else { return nil }
+    return source.thumbToken(
+      for: ImageRef(id: stableID, displayName: displayName, smbPath: nil, smbSourceID: nil))
+  }
+
   /// A failure to reach the source, or the source answering that it cannot
   /// serve the thumbnail yet, as opposed to answering that it has none.
   /// Re-downloading the whole original over the same unreachable or busy
@@ -93,15 +104,18 @@ extension ThumbnailLoader {
     source: (any ImageSource)?, ref: ImageRef?, key: String, coalescingKey: String,
     provider: (@Sendable () async throws -> Data)?, hint: String, producerHoldsDecodeSlot: Bool
   ) async -> Data? {
+    let token = ref.flatMap { source?.thumbToken(for: $0) }
     if let source, let ref {
       do {
         if let bytes = try await source.thumb(for: ref) {
           guard !Task.isCancelled else { return nil }
-          await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
+          await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key, token: token)
           return bytes
         }
       } catch {
-        if Self.isTransientSourceFailure(error) { return nil }
+        if Self.isTransientSourceFailure(error) {
+          return await ThumbnailDiskCache.shared.thumbnailData(forKey: key)
+        }
       }
     }
 
@@ -115,7 +129,7 @@ extension ThumbnailLoader {
       guard await tradeFetchSlotForDecodeSlot(coalescingKey: coalescingKey) else { return nil }
     }
     let result = await renderFallback(
-      provider: provider, hint: hint, key: key, source: source, ref: ref)
+      provider: provider, hint: hint, key: key, source: source, ref: ref, token: token)
     if !producerHoldsDecodeSlot { await releaseDecodeSlot() }
     return result
   }
@@ -144,7 +158,7 @@ extension ThumbnailLoader {
 
   private nonisolated func renderFallback(
     provider: @Sendable () async throws -> Data, hint: String, key: String,
-    source: (any ImageSource)?, ref: ImageRef?
+    source: (any ImageSource)?, ref: ImageRef?, token: String?
   ) async -> Data? {
     guard let bytes = try? await provider(), !Task.isCancelled else { return nil }
     guard let encoded = Self.fallbackThumbnails(from: bytes, hint: hint) else {
@@ -153,7 +167,7 @@ extension ThumbnailLoader {
     }
     await Self.persistFallbackRender(
       localData: encoded.local, onShareData: encoded.onShare,
-      key: key, source: source, ref: ref)
+      key: key, source: source, ref: ref, token: token)
     return encoded.local
   }
 
@@ -222,9 +236,9 @@ extension ThumbnailLoader {
   /// write-back completes" and "write-back receives the right bytes/ref."
   static func persistFallbackRender(
     localData: Data, onShareData: Data?, key: String,
-    source: (any ImageSource)?, ref: ImageRef?
+    source: (any ImageSource)?, ref: ImageRef?, token: String? = nil
   ) async {
-    await ThumbnailDiskCache.shared.storeThumbnailData(localData, forKey: key)
+    await ThumbnailDiskCache.shared.storeThumbnailData(localData, forKey: key, token: token)
     guard let source, let ref, let onShareData else { return }
     Task.detached(priority: .background) {
       await source.writeThumb(onShareData, for: ref)
