@@ -10,7 +10,7 @@ use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
-    pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality},
+    pipeline::{render_develop_preview, RawInput},
 };
 use std::ffi::{c_char, CStr};
 
@@ -28,8 +28,9 @@ use std::ffi::{c_char, CStr};
 /// (raw-core applies EXIF orientation as its final render stage), so — unlike
 /// the embedded-preview thumbnail path — no orientation is baked here.
 ///
-/// Uses AMaZE demosaic (`RenderQuality::Amaze`): this is a cache-populating
-/// background stage, not the interactive fast path, so it favours quality.
+/// Without a sidecar it develops through the sized chain at `max_px`;
+/// with one, at full size with AMaZE before resizing (see
+/// [`raw_core::pipeline::render_develop_preview`]).
 ///
 /// File-output (rather than a returned `MapleByteBuffer`) for the same
 /// `bun:ffi` double-free reason documented on
@@ -123,11 +124,12 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
                 return 7;
             }
         };
-        let (w, h, bytes) = match render_from_raw_with_quality_and_source(
+        let (w, h, bytes) = match render_develop_preview(
             &raw_img,
             &model,
-            RenderQuality::Amaze,
             Some(RawInput::Path(raw_path)),
+            max_px,
+            xmp_path_str.is_some(),
         ) {
             Ok(t) => t,
             Err(e) => {

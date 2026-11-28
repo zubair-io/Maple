@@ -23,7 +23,7 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
+use raw_core::pipeline::{render_develop_preview, RawInput};
 use std::path::Path;
 
 use crate::develop_common::{atomic_write, load_xmp_model, run_on_large_stack};
@@ -284,11 +284,12 @@ impl RenderDevelopJpegToFileTask {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let raw_img = raw_core::decode::decode_bytes(&raw_bytes, ext)
                 .map_err(|e| format!("decode: {e}"))?;
-            let (w, h, bytes) = render_from_raw_with_quality_and_source(
+            let (w, h, bytes) = render_develop_preview(
                 &raw_img,
                 &model,
-                RenderQuality::Amaze,
                 Some(RawInput::Path(path)),
+                max_px,
+                xmp_path.is_some(),
             )
             .map_err(|e| format!("render: {e}"))?;
             // The develop output is a tightly-packed, display-oriented
@@ -309,11 +310,11 @@ impl RenderDevelopJpegToFileTask {
 
 /// Develop `raw_path` with `xmp_path` applied (`None` = neutral defaults),
 /// downsample to `max_px` on the long edge, JPEG-encode, and write
-/// atomically to `out_path`. Uses AMaZE demosaic (`RenderQuality::Amaze`) —
-/// a cache-populating background stage, not the interactive fast path, so it
-/// favours quality. `quality` is JPEG quality in `[1, 100]`; `0` selects the
-/// default (82). Resolves the same shape `renderDevelopJpegToFile` already
-/// returns from the `bun:ffi` backend.
+/// atomically to `out_path`. Without a sidecar it develops through the sized
+/// chain at `max_px`; with one, at full size with AMaZE (see
+/// `raw_core::pipeline::render_develop_preview`). `quality` is JPEG quality in
+/// `[1, 100]`; `0` selects the default (82). Resolves the same shape
+/// `renderDevelopJpegToFile` already returns from the `bun:ffi` backend.
 ///
 /// Not currently reached from `src/maple/src/` (no `callNative` call site
 /// exists for it yet), but `test/maple.test.ts` exercises the full

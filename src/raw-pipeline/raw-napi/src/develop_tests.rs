@@ -216,3 +216,47 @@ fn rendering_a_real_dng_thumbnail_succeeds_and_writes_a_real_avif() {
     assert_eq!(&bytes[4..8], b"ftyp", "expected an AVIF ftyp box");
     let _ = std::fs::remove_file(&out_path);
 }
+
+fn develop_preview_long_edge(sidecar: Option<&str>) -> u32 {
+    let dir = temp_out_path(&format!("develop-preview-{}", sidecar.is_some()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let raw = dir.join("sensor.dng");
+    raw_core::test_support::synth_dng::SyntheticGreyDng {
+        width: 256,
+        height: 192,
+        ..Default::default()
+    }
+    .write_to(&raw)
+    .unwrap();
+    let xmp = sidecar.map(|body| {
+        let path = dir.join("sensor.xmp");
+        std::fs::write(&path, body).unwrap();
+        path.to_string_lossy().into_owned()
+    });
+    let out = dir.join("dev.jpg");
+    let result = RenderDevelopJpegToFileTask {
+        raw_path: raw.to_string_lossy().into_owned(),
+        xmp_path: xmp,
+        out_path: out.to_string_lossy().into_owned(),
+        max_px: 64,
+        quality: 0,
+    }
+    .compute()
+    .unwrap();
+    let dimensions = image::image_dimensions(&out);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(result.ok, "develop failed: {:?}", result.error);
+    let (width, height) = dimensions.unwrap();
+    width.max(height)
+}
+
+#[test]
+fn a_cropped_edit_developed_for_a_preview_reaches_the_target_long_edge() {
+    let half_size_crop = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropTop="0.250000" crs:CropLeft="0.250000" crs:CropBottom="0.750000" crs:CropRight="0.750000" crs:CropAngle="0.000000"/></rdf:RDF></x:xmpmeta>"#;
+    assert_eq!(develop_preview_long_edge(Some(half_size_crop)), 64);
+}
+
+#[test]
+fn an_unedited_photo_developed_for_a_preview_reaches_the_target_long_edge() {
+    assert_eq!(develop_preview_long_edge(None), 64);
+}

@@ -172,7 +172,11 @@ test.skipIf(!nativeLibAvailable())(
     const sidecarXml = (enabled: number) =>
       `<x><rdf:Description xmlns:rdf="x" xmlns:crs="x" xmlns:papp="x" crs:LensProfileEnable="${enabled}" papp:LensProfile="${ref}"/></x>`;
     try {
-      await ffiPool().renderDevelopJpegToFile(raw, null, join(dir, 'base.jpg'), 64);
+      await writeFile(
+        sidecar,
+        '<x><rdf:Description xmlns:rdf="x" xmlns:crs="x" xmlns:papp="x"/></x>',
+      );
+      await ffiPool().renderDevelopJpegToFile(raw, sidecar, join(dir, 'base.jpg'), 64);
       await writeFile(sidecar, sidecarXml(0));
       await ffiPool().renderDevelopJpegToFile(raw, sidecar, join(dir, 'off.jpg'), 64);
       expect(await readFile(join(dir, 'off.jpg'))).toEqual(await readFile(join(dir, 'base.jpg')));

@@ -12,9 +12,12 @@
 //!
 //! Mechanism (mirrors `apple_render_diff.py`'s "measured path vs reference"):
 //!   candidate = the EXTERN's JPEG output, decoded to RGB.
-//!   reference = `render_from_raw_with_quality_and_source` (the exact develop
-//!               `maple-cli batch` runs) + the same `resize_long_edge` the
-//!               extern uses — i.e. the develop without the JPEG round-trip.
+//!   reference = the develop the extern is meant to run, written out here
+//!               rather than shared with it: the sized develop at Full quality
+//!               without a sidecar, the full AMaZE develop
+//!               (`maple-cli batch`'s) with one, + the same `resize_long_edge`
+//!               the extern uses — i.e. the develop without the JPEG
+//!               round-trip.
 //! Both are written as PNGs and diffed with the ONE diff implementation
 //! (`src/scripts/compare_images.py`, CIEDE2000 + per-channel bias). The only
 //! expected non-zero contributor is JPEG q82 quantization, so the budget is
@@ -34,7 +37,10 @@ use std::process::Command;
 
 use image::{DynamicImage, GenericImageView};
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
+use raw_core::pipeline::{
+    render_from_raw_with_quality_and_source, render_sized_from_raw_with_quality_and_source,
+    RawInput, RenderQuality,
+};
 use raw_ffi::maple_render_develop_jpeg_to_file;
 
 const LONG_EDGE_PX: u32 = 1280;
@@ -130,9 +136,10 @@ fn resize_long_edge(img: DynamicImage, max_px: u32) -> DynamicImage {
     img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
 }
 
-/// Reference develop: the exact `raw-core` path `maple-cli batch` runs (AMaZE,
-/// path-sourced so `Profile::Auto` can read the embedded JPEG), downscaled to
-/// `LONG_EDGE_PX`. No JPEG round-trip.
+/// Reference develop, path-sourced so `Profile::Auto` can read the embedded
+/// JPEG: the sized develop at Full quality without a sidecar, the full AMaZE
+/// develop `maple-cli batch` runs with one, downscaled to `LONG_EDGE_PX`. No
+/// JPEG round-trip.
 fn reference_png(raw: &Path, xmp: Option<&str>, out: &Path) {
     let model = match xmp {
         Some(doc) => raw_core::xmp::parse(doc).expect("reference xmp parse"),
@@ -141,12 +148,19 @@ fn reference_png(raw: &Path, xmp: Option<&str>, out: &Path) {
     let raw_bytes = std::fs::read(raw).expect("read raw");
     let ext = raw.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw_img = decode_bytes(&raw_bytes, ext).expect("decode raw");
-    let (w, h, px) = render_from_raw_with_quality_and_source(
-        &raw_img,
-        &model,
-        RenderQuality::Amaze,
-        Some(RawInput::Path(raw)),
-    )
+    let source = Some(RawInput::Path(raw));
+    let (w, h, px) = match xmp {
+        None => render_sized_from_raw_with_quality_and_source(
+            &raw_img,
+            &model,
+            RenderQuality::Full,
+            source,
+            LONG_EDGE_PX,
+        ),
+        Some(_) => {
+            render_from_raw_with_quality_and_source(&raw_img, &model, RenderQuality::Amaze, source)
+        }
+    }
     .expect("reference develop");
     let rgb = image::RgbImage::from_raw(w, h, px).expect("reference buffer size");
     let resized = resize_long_edge(DynamicImage::ImageRgb8(rgb), LONG_EDGE_PX);

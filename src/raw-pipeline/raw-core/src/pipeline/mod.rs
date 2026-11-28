@@ -24,6 +24,7 @@
 pub(crate) mod capture_first;
 pub(crate) mod capture_sharpening_helper;
 mod develop;
+mod develop_preview;
 mod develop_sized;
 mod downsample;
 mod fp16;
@@ -57,6 +58,7 @@ pub use develop::{
     develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
+pub use develop_preview::render_develop_preview;
 pub use develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality,
     develop_scene_linear_sized_from_raw_with_quality_cancellable,
