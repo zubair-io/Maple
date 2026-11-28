@@ -287,7 +287,7 @@ scripts/timing-emulator.sh stop 5580
 | Decision 10, warm tile and folder listing | `scripts/timing-device.sh $S $APP $TEST folder`                                         | minimum and maximum over all rounds of provider listings, rows and document queries per warm tile, and tile and 30-tile times, in folders of 200 and 2,000 photos                                                                                                                                                                      |
 | Decision 11, cache eviction               | `scripts/timing-device.sh $S $APP $TEST cache`                                          | `trimCache` on a synthetic 64 MiB folder of 1,600 thumbnails (3,200 files) in a private directory under the app's cache directory, over and within its budget; the app's own thumbnail cache is not touched                                                                                                                            |
 | D11, tile decode                          | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST decode`                  | 512 px tile decoded at full size and with `inSampleSize = 2`, time and bitmap bytes                                                                                                                                                                                                                                                    |
-| Decision 12, cloud tile on API 30 and 36  | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST cloud`                   | one cloud tile through the whole-original path (below API 31) or the thumbnail route, with the response bytes the server sent for it; the server is a loopback one on the device, so network time is not included                                                                                                                      |
+| Decision 12, cloud tile on API 30 and 36  | `MAPLE_TIMING_RAW=<raw> scripts/timing-device.sh $S $APP $TEST cloud`                   | one cloud tile through the thumbnail route (a private PNG below API 31), with the response bytes the server sent for it; the server is a loopback one on the device, so network time is not included                                                                                                                                   |
 | Scroll frames                             | `scripts/timing-scroll.sh $S $APP $TEST 2000`                                           | `dumpsys gfxinfo` janky-frame share and frame-time percentiles while swiping a folder of 2,000 photos, started once the app has drawn and then gone quiet for three seconds (at most 60 s; that shows rendering settled, not that every thumbnail is loaded)                                                                           |
 
 `MAPLE_TIMING_RAW` pushes one RAW into the app's private files (`run-as`, debug builds only); without it the
@@ -436,8 +436,8 @@ image is resident. Slider draws coalesce, and undo commits at gesture boundaries
 Saves debounce for 750 ms and flush on navigation/backgrounding.
 
 App-private caches are reconstructible and bounded: staged originals use
-512 MiB plus the currently leased file; thumbnails/previews share 64 MiB. A
-staging lease prevents eviction during decode/export. Derived keys include
+512 MiB plus the currently leased file; thumbnails/previews share 64 MiB and, when full, drop to
+90% of it. A staging lease prevents eviction during decode/export. Derived keys include
 original URI, size, mtime, requested edge, and the complete current sidecar.
 An unedited thumbnail extracts the embedded JPEG, with real develop as fallback;
 an edited thumbnail/preview uses the canonical develop chain. No derivative is
@@ -462,8 +462,10 @@ tokens refresh once before retrying. Loopback HTTP is supported for development.
 the server session when reachable and always removes this device’s credentials.
 
 Library reads use the unified folder/image/thumb/preview routes. Server derivatives are
-freshness-checked by the server; Android 10/11 use the shared original-based thumbnail path because
-the OS has no AVIF decoder. XMP writes require `content-etag-v1`, a strong `If-Match` or create-only
+freshness-checked by the server; Android 10/11 convert the server thumbnail to a private PNG because
+the OS has no AVIF decoder. Listings carry a thumbnail token that rides each tile request as `?v=`; a
+cached tile with that token is shown without a request, except a photo this app saved since the
+listing, which always asks. XMP writes require `content-etag-v1`, a strong `If-Match` or create-only
 `If-None-Match: *`. A conflict retains unsaved edits; **Reload saved edits** asks before discarding
 them. Older servers without conditional saves must be upgraded before editing. The cloud device test
 exercises real HTTP, Keystore persistence, PKCE/state checks, cancellation during redemption,
@@ -603,7 +605,10 @@ rejects a later external sidecar edit (#4771).
 
 A single batched folder query populates local names/URIs/metadata. Thumbnail sidecar lookups reuse
 that snapshot; open/save/list/recovery refresh or invalidate it, while XMP contents are always read
-fresh. Metadata-only RAW sidecars keep the embedded-preview fast path. The local thumbnail cache key
+fresh. The tile pipeline shares a listing for each of the last few folders (the photo folder, `.maple/`
+and `.maple/thumbs/`), held softly so the system can reclaim it, for up to a second; this app's own
+saves, exports and cache publication, and a folder refresh, drop it. Metadata-only RAW sidecars keep
+the embedded-preview fast path. The local thumbnail cache key
 includes Android thumbnail version 2 to retire earlier unnecessarily developed culling previews.
 Incoming Open/Share MIME filters advertise supported formats only, with an Android 12+ AVIF alias;
 file-picker inputs are validated before opening.
