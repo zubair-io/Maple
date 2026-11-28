@@ -202,6 +202,7 @@ LocalWorkflowVariantRelocateTests
 LocalFileOperationsTrashTests
 LocalConflictCopyTests # #6134: conflict copies travel with their photo on move and trash
 LocalConflictCopyFinalizeTests # #6134: a conflict copy saved after planning stays at the source
+LocalConflictCopyAliasTests # #6134: a photo renamed to its own conflict copy's name
 
 # KTLO qualification batch 4 (#3657): map geometry and offscreen bitmaps,
 # stubbed HTTP, generated masks and temporary XMP/cache files.

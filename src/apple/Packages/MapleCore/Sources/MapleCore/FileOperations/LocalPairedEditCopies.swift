@@ -24,6 +24,8 @@ enum LocalPairedEditCopies {
   /// A target stem already has a UUID branch or conflict copy, even if the photo itself does not
   /// exist. Only an identical copy from this source may join it (the second half of a RAW/JPEG
   /// pair); an unrelated one is a collision, and so is a name that is another photo's sidecar.
+  /// So is a name that is one of this photo's own copies (a rename to its conflict copy's name):
+  /// joining it as the new sidecar would let the cleanup remove it as a carried source.
   /// A folder that cannot be listed is a failure, never "nothing there".
   static func occupied(at destination: URL, excluding source: URL) throws -> Bool {
     let own = try paired(with: source)
@@ -42,7 +44,7 @@ enum LocalPairedEditCopies {
           || SidecarOwnership.localSidecarAlreadyCarried(variant.path, at: candidate.path)
       }
     }
-    return try heldByOther
+    return try heldByOther || aliasesOwnCopy(own, from: source, to: destination)
       || own.contains { copy in
         ConflictCopyPairing.isSidecarOfAnotherPhoto(
           try target(for: copy, from: source, to: destination).lastPathComponent,
@@ -50,11 +52,28 @@ enum LocalPairedEditCopies {
       }
   }
 
+  private static func aliasesOwnCopy(_ own: [URL], from source: URL, to destination: URL) throws
+    -> Bool
+  {
+    let canonical = SidecarPath.sidecarURL(for: destination)
+    let landings = try own.map { try target(for: $0, from: source, to: destination) }
+    return own.enumerated().contains { index, copy in
+      SidecarOwnership.sameLocalFile(copy.path, canonical.path)
+        || own.indices.contains {
+          $0 != index && SidecarOwnership.sameLocalFile(own[$0].path, landings[index].path)
+        }
+    }
+  }
+
   /// Removes the source edit copies a move has published. A conflict copy saved after it was
   /// staged (a sync tool's late write) is not what the destination holds, so it stays.
   static func removeCarried(_ plan: RelocatePlan) {
     let primaryName = (plan.sourcePrimaryPath as NSString).lastPathComponent
+    let published =
+      [plan.finalPrimaryPath] + [plan.finalSidecarPath].compactMap { $0 }
+      + plan.finalVariantPaths
     for (source, destination) in zip(plan.sourceVariantPaths, plan.finalVariantPaths) {
+      if published.contains(where: { SidecarOwnership.sameLocalFile($0, source) }) { continue }
       let foldsCase = SidecarOwnership.localVolumeFoldsCase(
         URL(fileURLWithPath: source).deletingLastPathComponent())
       let isConflictCopy = ConflictCopyPairing.isConflictCopy(
