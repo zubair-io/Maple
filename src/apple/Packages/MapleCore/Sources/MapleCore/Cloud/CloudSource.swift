@@ -18,6 +18,7 @@
 
 import Foundation
 import MapleCloudKit
+import os
 
 public actor CloudSource {
   /// The URL requests actually go to — the local-network-resolved
@@ -42,7 +43,7 @@ public actor CloudSource {
   private let addresses: CloudAddressResolver
   /// Absolute path → the latest listing's `thumbVersion`, sent as `?v=` so
   /// the server and the edge answer the thumb `immutable` (#6013).
-  private var thumbVersions: [String: String] = [:]
+  private let thumbVersions = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
 
   public init(
     server: URL,
@@ -82,6 +83,10 @@ public actor CloudSource {
 
 extension CloudSource: ImageSource {
   public nonisolated var thumbnailsAreLatencyBound: Bool { true }
+
+  public nonisolated func thumbToken(for ref: ImageRef) -> String? {
+    thumbVersions.withLock { $0[Self.absPath(from: ref.id)] }
+  }
 
   /// Returns the IMMEDIATE image children of `currentPath`. Subfolders
   /// are not included in the returned list — they're surfaced via the
@@ -142,10 +147,11 @@ extension CloudSource: ImageSource {
   public func thumb(for ref: ImageRef) async throws -> Data? {
     let abs = Self.absPath(from: ref.id)
     let thumbURL = try await addresses.url(route: "thumb", absPath: abs)
-    let versioned = thumbVersions[abs].map {
+    let versioned = thumbToken(for: ref).map {
       thumbURL.appending(queryItems: [URLQueryItem(name: "v", value: $0)])
     }
-    let (data, resp) = try await httpClient.data(for: URLRequest(url: versioned ?? thumbURL))
+    let (data, resp) = try await httpClient.dataWithoutResponseCache(
+      for: URLRequest(url: versioned ?? thumbURL))
     switch (resp as? HTTPURLResponse)?.statusCode {
     case 404: return nil
     case 202: throw NSError(domain: Self.errorDomain, code: 202)
@@ -171,11 +177,13 @@ extension CloudSource: ImageSource {
   static let thumbVersionLimit = 20_000
 
   private func recordThumbVersions(of listing: FsDirListing) {
-    if thumbVersions.count + listing.images.count > Self.thumbVersionLimit {
-      thumbVersions.removeAll(keepingCapacity: true)
-    }
-    for image in listing.images {
-      thumbVersions[image.path] = image.thumbVersion
+    thumbVersions.withLock { versions in
+      if versions.count + listing.images.count > Self.thumbVersionLimit {
+        versions.removeAll(keepingCapacity: true)
+      }
+      for image in listing.images {
+        versions[image.path] = image.thumbVersion
+      }
     }
   }
 
@@ -413,9 +421,14 @@ extension CloudSource: ImageSource {
   /// nil on 404 (nothing to show) and on 202 (the unified preview route's
   /// "indexing, retry shortly" JSON reply — not pixels); every other
   /// non-2xx throws.
-  private func getOrNilWhenUnavailable(_ url: URL) async throws -> Data? {
+  private func getOrNilWhenUnavailable(_ url: URL, keepingHTTPCopy: Bool = true) async throws
+    -> Data?
+  {
     let req = URLRequest(url: url)
-    let (data, resp) = try await httpClient.data(for: req)
+    let (data, resp) =
+      keepingHTTPCopy
+      ? try await httpClient.data(for: req)
+      : try await httpClient.dataWithoutResponseCache(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 || http.statusCode == 202 {
       return nil
     }

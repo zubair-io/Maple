@@ -40,6 +40,11 @@ public actor AuthenticatedHTTPClient {
   }
   private let server: URL
   private let urlSession: URLSession
+  private lazy var uncachedURLSession: URLSession = {
+    let configuration = urlSession.configuration
+    configuration.urlCache = nil
+    return URLSession(configuration: configuration)
+  }()
   private let tokensProvider: () -> AuthTokens?
   private let onTokensRefreshed: (AuthTokens) throws -> Void
   private let onSignOut: () -> Void
@@ -86,9 +91,24 @@ public actor AuthenticatedHTTPClient {
   }
 
   public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    try await data(for: request, using: urlSession)
+  }
+
+  /// For a payload the caller keeps in its own cache, so the session's
+  /// `URLCache` would only hold a second copy of every response. Same
+  /// configuration as the main session, minus the response cache.
+  public func dataWithoutResponseCache(for request: URLRequest) async throws -> (
+    Data, URLResponse
+  ) {
+    try await data(for: request, using: uncachedURLSession)
+  }
+
+  private func data(for request: URLRequest, using session: URLSession) async throws -> (
+    Data, URLResponse
+  ) {
     Self.logRequest(request, attempt: 1)
     let tokens = try await requiredTokensForRequest()
-    let (data, resp) = try await dataOnce(request: inject(request, tokens: tokens))
+    let (data, resp) = try await dataOnce(request: inject(request, tokens: tokens), using: session)
     Self.logResponse(resp, data: data, request: request)
 
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (data, resp) }
@@ -130,7 +150,7 @@ public actor AuthenticatedHTTPClient {
       throw AuthenticationError.temporarilyUnavailable
     }
     Self.logRequest(request, attempt: 2)
-    let retried = try await dataOnce(request: inject(request, tokens: fresh))
+    let retried = try await dataOnce(request: inject(request, tokens: fresh), using: session)
     Self.logResponse(retried.1, data: retried.0, request: request)
     return retried
   }
@@ -391,8 +411,10 @@ public actor AuthenticatedHTTPClient {
     return (payload, resp)
   }
 
-  private func dataOnce(request: URLRequest) async throws -> (Data, URLResponse) {
-    try await urlSession.data(for: request)
+  private func dataOnce(request: URLRequest, using session: URLSession) async throws -> (
+    Data, URLResponse
+  ) {
+    try await session.data(for: request)
   }
 
   /// Streaming upload variant. Same refresh-on-401 contract as `data(for:)`

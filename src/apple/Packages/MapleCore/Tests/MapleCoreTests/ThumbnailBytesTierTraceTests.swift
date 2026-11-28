@@ -178,6 +178,7 @@ final class ThumbnailBytesTierTraceTests: XCTestCase {
     for index in 0..<capacity {
       await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(index))
     }
+    try fixture.dropDiskCopies(of: [0])
 
     let oldest = await cache.cachedThumbnail(for: try fixture.asset(0))
     for index in 1..<capacity { _ = await cache.cachedThumbnail(for: try fixture.asset(index)) }
@@ -185,8 +186,7 @@ final class ThumbnailBytesTierTraceTests: XCTestCase {
 
     await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(capacity))
     let reread = await cache.cachedThumbnail(for: try fixture.asset(0))
-    XCTAssertEqual(
-      reread?.isKnownDecodable, false, "the proven entry was still the oldest, so it went first")
+    XCTAssertNil(reread, "the proven entry was still the oldest, so it went first")
   }
 
   func testMemoryPressureDropsTheOldestEntriesFirst() async throws {
@@ -196,6 +196,7 @@ final class ThumbnailBytesTierTraceTests: XCTestCase {
     for index in 0..<capacity {
       await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(index))
     }
+    try fixture.dropDiskCopies(of: [0, 300])
 
     let old = await cache.cachedThumbnail(for: try fixture.asset(300))
     await cache.markDecodable(try XCTUnwrap(old))
@@ -210,37 +211,33 @@ final class ThumbnailBytesTierTraceTests: XCTestCase {
     let keptRecent = await cache.cachedThumbnail(for: try fixture.asset(0))
     let droppedOld = await cache.cachedThumbnail(for: try fixture.asset(300))
     XCTAssertEqual(keptRecent?.isKnownDecodable, true, "the newest quarter stays in memory")
-    XCTAssertEqual(droppedOld?.isKnownDecodable, false, "the oldest entries are the ones dropped")
+    XCTAssertNil(droppedOld, "the oldest entries are the ones dropped")
   }
 
   func testCacheKeepsAnEntryThatWasReadRecentlyWhenTheTierFills() async throws {
-    let folder = FileManager.default.temporaryDirectory
-      .appendingPathComponent("maple-bytes-tier-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: folder) }
-
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
     let cache = ThumbnailDiskCache()
-    let bytes = Data([0xFF, 0xD8, 0x01])
-    func asset(_ index: Int) throws -> URL {
-      let url = folder.appendingPathComponent("cell-\(index).jpg")
-      if !FileManager.default.fileExists(atPath: url.path) { try Data([1]).write(to: url) }
-      return url
+
+    for index in 0..<600 {
+      await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(index))
     }
-
-    for index in 0..<600 { await cache.storeThumbnailData(bytes, for: try asset(index)) }
-    let firstHit = await cache.cachedThumbnail(for: try asset(1))
+    try fixture.dropDiskCopies(of: [0, 1])
+    let firstHit = await cache.cachedThumbnail(for: try fixture.asset(1))
     await cache.markDecodable(try XCTUnwrap(firstHit))
-    let secondHit = await cache.cachedThumbnail(for: try asset(0))
+    let secondHit = await cache.cachedThumbnail(for: try fixture.asset(0))
     await cache.markDecodable(try XCTUnwrap(secondHit))
-    _ = await cache.cachedThumbnail(for: try asset(0))
+    _ = await cache.cachedThumbnail(for: try fixture.asset(0))
 
-    for index in 600..<1198 { await cache.storeThumbnailData(bytes, for: try asset(index)) }
-    let stillProven = await cache.cachedThumbnail(for: try asset(0))
+    for index in 600..<1198 {
+      await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(index))
+    }
+    let stillProven = await cache.cachedThumbnail(for: try fixture.asset(0))
     XCTAssertEqual(stillProven?.isKnownDecodable, true, "a recently read entry survives")
 
-    await cache.storeThumbnailData(bytes, for: try asset(1198))
-    let evicted = await cache.cachedThumbnail(for: try asset(1))
-    XCTAssertEqual(evicted?.isKnownDecodable, false, "the least recently used entry goes first")
+    await cache.storeThumbnailData(fixture.bytes, for: try fixture.asset(1198))
+    let evicted = await cache.cachedThumbnail(for: try fixture.asset(1))
+    XCTAssertNil(evicted, "the least recently used entry goes first")
   }
 }
 
@@ -258,6 +255,13 @@ private struct CacheFixture {
     let url = folder.appendingPathComponent("cell-\(index).jpg")
     if !FileManager.default.fileExists(atPath: url.path) { try Data([1]).write(to: url) }
     return url
+  }
+
+  // A self-written thumb re-reads as decodable, so only a missing disk copy proves eviction.
+  func dropDiskCopies(of indices: [Int]) throws {
+    for index in indices {
+      try FileManager.default.removeItem(at: MapleSidecarPaths.thumbURL(for: try asset(index)))
+    }
   }
 
   func remove() { try? FileManager.default.removeItem(at: folder) }

@@ -80,6 +80,8 @@ struct PhotoThumbnailCell: View {
   @State private var decoded: CGImage?
   /// Final pixels retained by this tile can outlive the shared cache entry.
   @State private var decodedRevision: String?
+  /// The bitmap this cell shows; nil while it loads another item.
+  @State private var shown: ThumbnailRefresh.ShownBitmap?
 
   private var reloadKey: String {
     DevelopedImageRevision.shared.reloadKey(
@@ -201,6 +203,8 @@ struct PhotoThumbnailCell: View {
     .modifier(OptionalTapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .task(id: item.id) { await onLoad?() }
     .task(id: reloadKey) {
+      let loadKey = reloadKey
+      shown = nil
       if item.thumbnailSource.localAssetURL != nil {
         decoded = nil
         decodedRevision = nil
@@ -208,6 +212,8 @@ struct PhotoThumbnailCell: View {
       let key = await DevelopedImageRevision.shared.decodedKeyAsync(
         for: item.id, source: item.thumbnailSource)
       guard !Task.isCancelled else { return }
+      shown = .init(loadKey: loadKey, bitmapKey: key)
+      ThumbnailRefresh.track(bitmapKey: key, for: item.thumbnailSource)
       // Lazy grids retain cell state beyond the viewport. A cache eviction
       // must not make that cell discard and reload its own final bitmap.
       if decodedRevision == key, decoded != nil { return }
@@ -249,6 +255,20 @@ struct PhotoThumbnailCell: View {
       guard !Task.isCancelled else { return }
       if let image {
         LaunchTimeline.shared.mark(.firstThumbnail)
+        decoded = ThumbnailDecoder.latest(image, forKey: key)
+        decodedRevision = key
+      }
+    }
+    .onReceive(ThumbnailRefresh.refreshes) { notification in
+      let snapshot = shown
+      guard
+        let key = ThumbnailRefresh.bitmapKey(
+          toRefresh: item.thumbnailSource, loadKey: reloadKey, shown: snapshot, on: notification)
+      else { return }
+      Task {
+        let image = await ThumbnailRefresh.refreshedImage(
+          for: item.thumbnailSource, bitmapKey: key)
+        guard let image, shown == snapshot else { return }
         decoded = image
         decodedRevision = key
       }

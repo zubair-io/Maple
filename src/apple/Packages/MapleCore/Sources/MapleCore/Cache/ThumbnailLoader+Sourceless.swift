@@ -8,7 +8,10 @@ import Foundation
 extension ThumbnailLoader {
   /// Sourceless entry point — for assets without a filesystem URL (PhotoKit,
   /// SelfHosted). Order of attempts:
-  ///   1. Disk cache hit on the asset's stable id.
+  ///   1. Disk cache hit on the asset's stable id. One whose server token is
+  ///      out of date is returned at once and refetched in the background,
+  ///      once per launch; different bytes that arrive are broadcast through
+  ///      `ThumbnailRefresh`.
   ///   2. `source.thumb(for:)` — server-rendered or PhotoKit fast path.
   ///   3. Render-from-bytes fallback: `bytesProvider` → ImageIO for a
   ///      JPEG/HEIC/PNG, `PipelineRenderer.render(rawBytes:hint:)` for a RAW
@@ -30,9 +33,19 @@ extension ThumbnailLoader {
     guard !Task.isCancelled else { return nil }
     let key = asset.stableID ?? asset.displayName
 
-    // 1. Disk-cache hit.
-    if let cached = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) {
-      return cached
+    // 1. Disk-cache hit; a token-stale one is shown while it is refetched.
+    let token = Self.thumbToken(
+      of: source, forStableID: asset.stableID, displayName: asset.displayName)
+    if let hit = await ThumbnailDiskCache.shared.sourcelessThumbnail(
+      forKey: key, currentToken: token)
+    {
+      if !hit.isCurrent, let source, let ref = Self.imageRef(of: asset) {
+        await refreshStaleThumbnail(
+          StaleRefetch(
+            key: key, refreshKey: key.qualified(byHost: asset.cloudHostKey),
+            host: asset.cloudHostKey ?? "", ref: ref, source: source, token: token))
+      }
+      return hit.data
     }
 
     guard !Task.isCancelled else { return nil }
@@ -54,18 +67,10 @@ extension ThumbnailLoader {
       return await awaitThumbnail(existing)
     }
 
-    let stableID = asset.stableID
-    let displayName = asset.displayName
     let provider = asset.bytesProvider
     let hint = asset.hintExtension ?? ""
-    // Built once, reused by both the source.thumb() branch and the
-    // fallback's write-back call below. The SMB location pins the read and
-    // write-back to the copy and share that listed it (#5051).
-    let smbPath = asset.smbPath
-    let smbSourceID = asset.smbSourceID
-    let ref = stableID.map {
-      ImageRef(id: $0, displayName: displayName, smbPath: smbPath, smbSourceID: smbSourceID)
-    }
+    let host = asset.cloudHostKey ?? ""
+    let ref = Self.imageRef(of: asset)
     // A producer, like the URL-keyed path: a Maple Cloud request already on
     // the wire finishes and fills the cache when its last cell scrolls away,
     // instead of being cancelled into the RAW-download fallback (#5735).
@@ -74,9 +79,17 @@ extension ThumbnailLoader {
     let task = startLocalProducer(key: coalescingKey, gate: gate) {
       await self.produceSourcelessThumbnail(
         source: source, ref: ref, key: key, coalescingKey: coalescingKey,
-        provider: provider, hint: hint, producerHoldsDecodeSlot: !latencyBound)
+        provider: provider, hint: hint, host: host, producerHoldsDecodeSlot: !latencyBound)
     }
     return await awaitThumbnail(task)
+  }
+
+  private nonisolated static func thumbToken(
+    of source: (any ImageSource)?, forStableID stableID: String?, displayName: String
+  ) -> String? {
+    guard let source, let stableID else { return nil }
+    return source.thumbToken(
+      for: ImageRef(id: stableID, displayName: displayName, smbPath: nil, smbSourceID: nil))
   }
 
   /// A failure to reach the source, or the source answering that it cannot
@@ -91,18 +104,24 @@ extension ThumbnailLoader {
 
   private nonisolated func produceSourcelessThumbnail(
     source: (any ImageSource)?, ref: ImageRef?, key: String, coalescingKey: String,
-    provider: (@Sendable () async throws -> Data)?, hint: String, producerHoldsDecodeSlot: Bool
+    provider: (@Sendable () async throws -> Data)?, hint: String, host: String,
+    producerHoldsDecodeSlot: Bool
   ) async -> Data? {
+    let token = ref.flatMap { source?.thumbToken(for: $0) }
     if let source, let ref {
-      do {
-        if let bytes = try await source.thumb(for: ref) {
-          guard !Task.isCancelled else { return nil }
-          await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
-          return bytes
-        }
-      } catch {
-        if Self.isTransientSourceFailure(error) { return nil }
+      let fetched: Result<Data?, any Error> = await {
+        do { return .success(try await source.thumb(for: ref)) } catch { return .failure(error) }
+      }()
+      switch fetched {
+      case .success: await recordServerAnswer(host: host)
+      case .failure(let error): await recordServerAnswer(host: host, failedWith: error)
       }
+      if case .success(let bytes?) = fetched {
+        guard !Task.isCancelled else { return nil }
+        await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key, token: token)
+        return bytes
+      }
+      if case .failure(let error) = fetched, Self.isTransientSourceFailure(error) { return nil }
     }
 
     // Fallback: download the original and render it here. Only worth starting
@@ -115,9 +134,79 @@ extension ThumbnailLoader {
       guard await tradeFetchSlotForDecodeSlot(coalescingKey: coalescingKey) else { return nil }
     }
     let result = await renderFallback(
-      provider: provider, hint: hint, key: key, source: source, ref: ref)
+      provider: provider, hint: hint, key: key, source: source, ref: ref, token: token)
     if !producerHoldsDecodeSlot { await releaseDecodeSlot() }
     return result
+  }
+
+  // Built once per path: the SMB location pins the read and write-back to the
+  // copy and share that listed it (#5051).
+  private static func imageRef(of asset: AssetRef) -> ImageRef? {
+    asset.stableID.map {
+      ImageRef(
+        id: $0, displayName: asset.displayName, smbPath: asset.smbPath,
+        smbSourceID: asset.smbSourceID)
+    }
+  }
+
+  private func refreshStaleThumbnail(_ refetch: StaleRefetch) {
+    if let queued = pendingStaleRefetches.firstIndex(where: {
+      $0.refreshKey == refetch.refreshKey
+    }) {
+      pendingStaleRefetches.append(pendingStaleRefetches.remove(at: queued))
+      return
+    }
+    guard staleRefreshedKeys.insert(refetch.refreshKey).inserted else { return }
+    pendingStaleRefetches.append(refetch)
+    if pendingStaleRefetches.count > Self.maxPendingStaleRefetches {
+      staleRefreshedKeys.remove(pendingStaleRefetches.removeFirst().refreshKey)
+    }
+    startPendingStaleRefetches()
+  }
+
+  /// A foreground producer in flight, or a server that is not ready, keeps its queued refetches waiting.
+  func startPendingStaleRefetches() {
+    while taskProducerIDs.isEmpty, runningStaleRefetches < Self.maxConcurrentStaleRefetches,
+      let ready = pendingStaleRefetches.lastIndex(where: { !notReadyHosts.contains($0.host) })
+    {
+      let next = pendingStaleRefetches.remove(at: ready)
+      runningStaleRefetches += 1
+      Task.detached(priority: .utility) {
+        await self.fetchStaleThumbnail(next)
+        await self.finishStaleRefetch(next.refreshKey)
+      }
+    }
+  }
+
+  private func recordServerAnswer(host: String, failedWith error: (any Error)? = nil) {
+    if let error {
+      if CloudSource.isServerNotReady(error) { notReadyHosts.insert(host) }
+      return
+    }
+    notReadyHosts.remove(host)
+    startPendingStaleRefetches()
+  }
+
+  private func finishStaleRefetch(_ key: String) {
+    runningStaleRefetches -= 1
+    staleRefreshDidFinish?(key)
+    startPendingStaleRefetches()
+  }
+
+  // No retry of its own: a failure leaves the stale copy, and the retry
+  // scheduler only retries cells that got nothing.
+  private nonisolated func fetchStaleThumbnail(_ refetch: StaleRefetch) async {
+    let answer: Data?
+    do {
+      answer = try await refetch.source.thumb(for: refetch.ref)
+    } catch {
+      await recordServerAnswer(host: refetch.host, failedWith: error)
+      return
+    }
+    await recordServerAnswer(host: refetch.host)
+    guard let bytes = answer else { return }
+    await ThumbnailRefresh.store(
+      bytes, forKey: refetch.key, refreshKey: refetch.refreshKey, token: refetch.token)
   }
 
   private func fallbackIsWanted(key: String, coalescingKey: String) -> Bool {
@@ -144,7 +233,7 @@ extension ThumbnailLoader {
 
   private nonisolated func renderFallback(
     provider: @Sendable () async throws -> Data, hint: String, key: String,
-    source: (any ImageSource)?, ref: ImageRef?
+    source: (any ImageSource)?, ref: ImageRef?, token: String?
   ) async -> Data? {
     guard let bytes = try? await provider(), !Task.isCancelled else { return nil }
     guard let encoded = Self.fallbackThumbnails(from: bytes, hint: hint) else {
@@ -153,7 +242,7 @@ extension ThumbnailLoader {
     }
     await Self.persistFallbackRender(
       localData: encoded.local, onShareData: encoded.onShare,
-      key: key, source: source, ref: ref)
+      key: key, source: source, ref: ref, token: token)
     return encoded.local
   }
 
@@ -222,9 +311,9 @@ extension ThumbnailLoader {
   /// write-back completes" and "write-back receives the right bytes/ref."
   static func persistFallbackRender(
     localData: Data, onShareData: Data?, key: String,
-    source: (any ImageSource)?, ref: ImageRef?
+    source: (any ImageSource)?, ref: ImageRef?, token: String? = nil
   ) async {
-    await ThumbnailDiskCache.shared.storeThumbnailData(localData, forKey: key)
+    await ThumbnailDiskCache.shared.storeThumbnailData(localData, forKey: key, token: token)
     guard let source, let ref, let onShareData else { return }
     Task.detached(priority: .background) {
       await source.writeThumb(onShareData, for: ref)

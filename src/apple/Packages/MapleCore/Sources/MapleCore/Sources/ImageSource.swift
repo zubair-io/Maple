@@ -189,6 +189,11 @@ public protocol ImageSource: Actor {
   /// CPU-bound render and encode, and SMB reads share one NAS connection.
   nonisolated var thumbnailsAreLatencyBound: Bool { get }
 
+  /// The source's current freshness token for `ref`'s thumbnail, from its
+  /// latest listing, or nil when it has none. A cached thumbnail fetched for a
+  /// different token is refetched. The token never enters a file name or key.
+  nonisolated func thumbToken(for ref: ImageRef) -> String?
+
   /// Best-effort write-back for a freshly rendered thumbnail (#2690) —
   /// called by `ThumbnailLoader`'s sourceless render-from-bytes fallback
   /// right after it produces AVIF bytes for `ref`, so a source that owns a
@@ -235,6 +240,8 @@ extension ImageSource {
   public func writeThumb(_ data: Data, for ref: ImageRef) async {}
 
   public nonisolated var thumbnailsAreLatencyBound: Bool { false }
+
+  public nonisolated func thumbToken(for ref: ImageRef) -> String? { nil }
 
   public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
     do {

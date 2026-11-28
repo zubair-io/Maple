@@ -57,6 +57,27 @@ public actor ThumbnailLoader {
   /// server again but never downloads them a second time.
   var unrenderableSourcelessKeys: Set<String> = []
 
+  /// Server-qualified keys of sourceless photos whose token-stale cached thumbnail was refetched, is
+  /// being refetched, or waits in `pendingStaleRefetches`, this launch.
+  var staleRefreshedKeys: Set<String> = []
+  /// Waiting refetches, newest last: the photo shown most recently goes first.
+  var pendingStaleRefetches: [StaleRefetch] = []
+  var runningStaleRefetches = 0
+  /// Servers that last answered a thumbnail request with a 202 or 5xx; their queued refetches wait for a success.
+  var notReadyHosts: Set<String> = []
+  static let maxPendingStaleRefetches = 64
+  static let maxConcurrentStaleRefetches = 4
+  var staleRefreshDidFinish: (@Sendable (String) -> Void)?
+
+  struct StaleRefetch: Sendable {
+    let key: String
+    let refreshKey: String
+    let host: String
+    let ref: ImageRef
+    let source: any ImageSource
+    let token: String?
+  }
+
   /// Cap on concurrent fetches from a source whose thumbnails are
   /// latency-bound network reads (`ImageSource.thumbnailsAreLatencyBound`,
   /// #6008), which would otherwise queue behind the decode gate. A
@@ -190,11 +211,14 @@ public actor ThumbnailLoader {
     return await awaitThumbnail(task)
   }
 
+  nonisolated static let readabilityChecks = OSAllocatedUnfairLock(initialState: 0)
+
   /// Check that ImageIO can decode the cached image, not just read its header.
   /// Truncated AVIFs can expose valid dimensions while failing at pixel decode;
   /// accepting those bytes strands the grid and preview on placeholders. Decode
   /// only a tiny eager thumbnail here so the cache check stays inexpensive.
   nonisolated static func isUsableImageData(_ data: Data) -> Bool {
+    readabilityChecks.withLock { $0 += 1 }
     guard
       let source = CGImageSourceCreateWithData(data as CFData, nil),
       CGImageSourceGetCount(source) > 0,

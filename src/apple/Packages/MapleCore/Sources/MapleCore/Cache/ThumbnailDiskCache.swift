@@ -55,6 +55,19 @@ public actor ThumbnailDiskCache {
     capacity: ThumbnailDiskCache.maxDataEntries)
   /// `dataMemCache` keys whose current bytes a caller has seen decode.
   private var decodableDataKeys: Set<String> = []
+  /// Server thumbnail token each sourceless entry's bytes were fetched for.
+  private var fetchedTokens: RecencyOrderedStore<String, String>
+  private let fetchedTokenCapacity: Int
+  /// Matches `CloudSource`'s listing map; tokens are small.
+  static let defaultFetchedTokenCapacity = 20_000
+  init(fetchedTokenCapacity: Int = ThumbnailDiskCache.defaultFetchedTokenCapacity) {
+    self.fetchedTokenCapacity = fetchedTokenCapacity
+    self.fetchedTokens = RecencyOrderedStore(capacity: fetchedTokenCapacity)
+  }
+
+  /// Bumped by every sourceless store, so a token read before the store is
+  /// never written back over it.
+  private var sourcelessStoreGeneration = 0
   private let maxMemEntries = 100
   // Bytes are ~20-60 KB, so 600 is ~12-36 MB: enough for a full screen of a
   // dense 5K grid plus scroll-back, where 100 evicted visible cells (#6017).
@@ -145,10 +158,14 @@ public actor ThumbnailDiskCache {
     let key = Self.memoryKey(for: assetURL, sourceSignature: signature)
     if let hit = await rememberedThumbnail(forMemoryKey: key) { return hit }
     let fileURL = MapleSidecarPaths.thumbURL(for: assetURL)
-    guard LocalDerivativeSourceStamp.isFresh(fileURL, signature: signature),
+    let reading = LocalDerivativeSourceStamp.read(fileURL, signature: signature)
+    guard reading.isFresh,
       let data = Self.readThumb(at: fileURL, legacyKey: Self.cacheKey(for: assetURL))
     else { return nil }
-    return await rememberReadThumbnail(data, forMemoryKey: key)
+    let isUnchangedOwnWrite =
+      reading.ownWrite.map { LocalDerivativeSourceStamp.fileMatches($0, at: fileURL) } ?? false
+    return await rememberReadThumbnail(
+      data, forMemoryKey: key, isKnownDecodable: isUnchangedOwnWrite)
   }
 
   private func rememberedThumbnail(forMemoryKey key: String) -> CachedThumbnail? {
@@ -158,10 +175,15 @@ public actor ThumbnailDiskCache {
   }
 
   // A store that landed while the disk read was in flight wins over the read.
-  private func rememberReadThumbnail(_ data: Data, forMemoryKey key: String) -> CachedThumbnail {
+  // `isKnownDecodable` is for a file this app wrote itself and that still has
+  // the size and modification time recorded then.
+  private func rememberReadThumbnail(
+    _ data: Data, forMemoryKey key: String, isKnownDecodable: Bool = false
+  ) -> CachedThumbnail {
     if let current = rememberedThumbnail(forMemoryKey: key) { return current }
     rememberData(data, forMemoryKey: key)
-    return CachedThumbnail(data: data, isKnownDecodable: false, memoryKey: key)
+    if isKnownDecodable { decodableDataKeys.insert(key) }
+    return CachedThumbnail(data: data, isKnownDecodable: isKnownDecodable, memoryKey: key)
   }
 
   /// Record that `hit`'s bytes decoded, unless the entry was replaced since.
@@ -189,13 +211,76 @@ public actor ThumbnailDiskCache {
   /// Note: pre-2026-05 this overload used MD5 of the key; it now uses
   /// `sha256Prefix16`, so any pre-existing entries at the old MD5 path are
   /// orphans.
-  public nonisolated func thumbnailData(forKey key: String) async -> Data? {
+  ///
+  /// `currentToken` is the server's thumbnail token for the asset in its latest
+  /// listing. Bytes fetched for a different token (or for an unknown one) are
+  /// a miss, so a server-side re-render is refetched. `nil` skips the check.
+  public nonisolated func thumbnailData(forKey key: String, currentToken: String? = nil) async
+    -> Data?
+  {
+    guard let hit = await sourcelessThumbnail(forKey: key, currentToken: currentToken),
+      hit.isCurrent
+    else { return nil }
+    return hit.data
+  }
+
+  /// The cached bytes whatever token they were fetched for, and whether that
+  /// token is `currentToken`, so a caller can show a stale copy at once while it
+  /// refetches. A `nil` `currentToken` always counts as current.
+  public nonisolated func sourcelessThumbnail(forKey key: String, currentToken: String?) async
+    -> (data: Data, isCurrent: Bool)?
+  {
     let hashed = MapleThumbCacheKey.sha256Prefix16(key)
-    if let remembered = await rememberedThumbnail(forMemoryKey: hashed) { return remembered.data }
-    let fileURL = sourcelessCacheDir.appendingPathComponent(
-      MapleThumbCacheKey.thumbFilename(forKey: hashed))
+    let fileURL = sourcelessFileURL(forHashedKey: hashed)
+    let isCurrent: Bool
+    let probedData: Data?
+    if let currentToken {
+      let probe = await sourcelessProbe(forHashedKey: hashed)
+      isCurrent = (probe.token ?? Self.readFetchedToken(for: fileURL)) == currentToken
+      if isCurrent, probe.token == nil {
+        await rememberFetchedToken(
+          currentToken, forHashedKey: hashed, unlessStoredSince: probe.generation)
+      }
+      probedData = probe.data
+    } else {
+      isCurrent = true
+      probedData = nil
+    }
+    if let probedData { return (probedData, isCurrent) }
+    if let remembered = await rememberedThumbnail(forMemoryKey: hashed) {
+      return (remembered.data, isCurrent)
+    }
     guard let data = Self.readThumb(at: fileURL, legacyKey: hashed) else { return nil }
-    return await rememberReadThumbnail(data, forMemoryKey: hashed).data
+    return (await rememberReadThumbnail(data, forMemoryKey: hashed).data, isCurrent)
+  }
+
+  private nonisolated func sourcelessFileURL(forHashedKey hashed: String) -> URL {
+    sourcelessCacheDir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: hashed))
+  }
+
+  /// One actor call for the warm path: the remembered bytes, the token they
+  /// were fetched for, and the store generation both were read at.
+  private func sourcelessProbe(forHashedKey hashed: String) -> (
+    data: Data?, token: String?, generation: Int
+  ) {
+    (dataMemCache.touch(hashed), fetchedTokens.peek(hashed), sourcelessStoreGeneration)
+  }
+
+  private func rememberFetchedToken(
+    _ token: String, forHashedKey hashed: String, unlessStoredSince generation: Int
+  ) {
+    guard generation == sourcelessStoreGeneration else { return }
+    _ = fetchedTokens.set(token, for: hashed)
+  }
+
+  var rememberedTokenKeysOldestFirst: [String] { fetchedTokens.keysOldestFirst }
+
+  private nonisolated static func tokenStampURL(for fileURL: URL) -> URL {
+    fileURL.appendingPathExtension("source")
+  }
+
+  private nonisolated static func readFetchedToken(for fileURL: URL) -> String? {
+    try? String(contentsOf: tokenStampURL(for: fileURL), encoding: .utf8)
   }
 
   // MARK: - Nonisolated synchronous memory peek
@@ -233,7 +318,24 @@ public actor ThumbnailDiskCache {
     guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
     rememberData(data, forMemoryKey: key)
     if (try? data.write(to: fileURL, options: .atomic)) != nil {
+      Self.stampWrite(data, at: fileURL, for: assetURL)
+    }
+  }
+
+  // A bad encode keeps the plain stamp, so the next read's readability check still removes it.
+  private static func stampWrite(_ data: Data, at fileURL: URL, for assetURL: URL) {
+    if ThumbnailLoader.isUsableImageData(data) {
+      LocalDerivativeSourceStamp.recordOwnWrite(fileURL, for: assetURL)
+    } else {
       LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
+    }
+  }
+
+  private static func stampWrite(_ data: Data, at fileURL: URL, sourceSignature: String) throws {
+    if ThumbnailLoader.isUsableImageData(data) {
+      try LocalDerivativeSourceStamp.recordOwnWrite(fileURL, sourceSignature: sourceSignature)
+    } else {
+      try LocalDerivativeSourceStamp.record(fileURL, sourceSignature: sourceSignature)
     }
   }
 
@@ -248,7 +350,7 @@ public actor ThumbnailDiskCache {
     rememberData(data, forMemoryKey: key)
     let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
     if (try? data.write(to: fileURL, options: .atomic)) != nil {
-      LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
+      Self.stampWrite(data, at: fileURL, for: assetURL)
     }
   }
 
@@ -265,8 +367,7 @@ public actor ThumbnailDiskCache {
     let persisted =
       (try? data.write(to: fileURL, options: .atomic)) != nil
       && LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL)
-      && (try? LocalDerivativeSourceStamp.record(
-        fileURL, sourceSignature: sourceSignature)) != nil
+      && (try? Self.stampWrite(data, at: fileURL, sourceSignature: sourceSignature)) != nil
     if !persisted {
       LocalDerivativeSourceStamp.remove(fileURL)
       try? fm.removeItem(at: fileURL)
@@ -279,12 +380,20 @@ public actor ThumbnailDiskCache {
 
   /// Store pre-encoded AVIF bytes under an opaque stable key. Sibling of the
   /// URL-keyed overload — used for sourceless assets keyed by `AssetRef.id`.
-  public func storeThumbnailData(_ data: Data, forKey key: String) {
+  ///
+  /// `token` is the server thumbnail token the bytes were fetched for. It is kept
+  /// in memory for the hot read path and in a stamp beside the file, so it
+  /// survives a relaunch; a store without one clears any earlier token.
+  public func storeThumbnailData(_ data: Data, forKey key: String, token: String? = nil) {
     let hashed = hashKey(key)
     rememberData(data, forMemoryKey: hashed)
-    let fileURL = sourcelessCacheDir.appendingPathComponent(
-      MapleThumbCacheKey.thumbFilename(forKey: hashed))
-    try? data.write(to: fileURL, options: .atomic)
+    sourcelessStoreGeneration += 1
+    if let token { _ = fetchedTokens.set(token, for: hashed) } else { fetchedTokens.remove(hashed) }
+    let fileURL = sourcelessFileURL(forHashedKey: hashed)
+    let stampURL = Self.tokenStampURL(for: fileURL)
+    try? fm.removeItem(at: stampURL)
+    guard (try? data.write(to: fileURL, options: .atomic)) != nil, let token else { return }
+    try? token.write(to: stampURL, atomically: true, encoding: .utf8)
   }
 
   /// `<asset folder>/.maple/thumbs/<filename.ext>.avif`, the shared unhashed
@@ -346,6 +455,7 @@ public actor ThumbnailDiskCache {
   /// `ThumbnailLoader.handleMemoryPressure()` in response to system-level
   /// memory warnings.
   public func shrinkMemCache(to percent: Int) {
+    fetchedTokens = RecencyOrderedStore(capacity: fetchedTokenCapacity)
     let keep = max(1, (maxMemEntries * max(0, min(100, percent))) / 100)
     while memCache.count > keep {
       if let key = memCache.keys.first { memCache.removeValue(forKey: key) }

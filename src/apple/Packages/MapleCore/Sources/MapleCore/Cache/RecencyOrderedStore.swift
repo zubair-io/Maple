@@ -23,6 +23,8 @@ struct RecencyOrderedStore<Key: Hashable, Value> {
 
   var count: Int { index.count }
 
+  var oldestKey: Key? { oldest == Self.none ? nil : slots[oldest]?.key }
+
   var keysOldestFirst: [Key] {
     var keys: [Key] = []
     var cursor = oldest

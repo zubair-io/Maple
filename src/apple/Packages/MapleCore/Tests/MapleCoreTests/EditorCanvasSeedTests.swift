@@ -11,8 +11,14 @@ final class EditorCanvasSeedTests: XCTestCase {
   private actor StubSource: ImageSource {
     private(set) var thumbIDs: [String] = []
     let thumbBytes: Data?
+    private let token: String?
 
-    init(thumbBytes: Data?) { self.thumbBytes = thumbBytes }
+    init(thumbBytes: Data?, token: String? = nil) {
+      self.thumbBytes = thumbBytes
+      self.token = token
+    }
+
+    nonisolated func thumbToken(for ref: ImageRef) -> String? { token }
 
     func images() async throws -> [ImageRef] { [] }
     func thumb(for ref: ImageRef) async throws -> Data? {
@@ -120,6 +126,60 @@ final class EditorCanvasSeedTests: XCTestCase {
     XCTAssertEqual(fetched, ["fs:\(absPath)"])
     let stored = await ThumbnailDiskCache.shared.thumbnailData(forKey: stableID)
     XCTAssertEqual(stored, serverThumb)
+  }
+
+  func testChangedTokenWithAFailedRefetchStillSeedsFromTheStaleThumbnail() async {
+    let (asset, catalog) = folderBrowseAsset()
+    let stale = Data([0x01, 0x02, 0x03])
+    await ThumbnailDiskCache.shared.storeThumbnailData(stale, forKey: stableID, token: "t1")
+    let source = StubSource(thumbBytes: nil, token: "t2")
+
+    let bytes = await EditorCanvasSeed.cloudThumbnailBytes(
+      asset: asset, catalog: catalog, server: source,
+      cloudThumbs: CloudThumbCache(baseDir: cloudThumbsDir))
+
+    XCTAssertEqual(bytes, stale)
+    let recorded = await ThumbnailDiskCache.shared.thumbnailData(
+      forKey: stableID, currentToken: "t2")
+    XCTAssertNil(recorded, "the new token is not recorded, so the grid refetches")
+  }
+
+  private final class RefreshedKeys: @unchecked Sendable {
+    private let lock = NSLock()
+    private var keys: [String] = []
+    private var observer: NSObjectProtocol?
+
+    init() {
+      observer = NotificationCenter.default.addObserver(
+        forName: ThumbnailRefresh.didRefresh, object: nil, queue: nil
+      ) { [self] notification in
+        let key = notification.userInfo?["thumbnailKey"] as? String
+        lock.withLock { keys.append(contentsOf: key.map { [$0] } ?? []) }
+      }
+    }
+
+    deinit { observer.map(NotificationCenter.default.removeObserver) }
+
+    var all: [String] { lock.withLock { keys } }
+  }
+
+  func testASeedThatReplacesAStaleThumbnailBroadcastsItOnlyWhenTheBytesChanged() async {
+    let (asset, catalog) = folderBrowseAsset()
+    let stale = Data([0x01, 0x02, 0x03])
+    await ThumbnailDiskCache.shared.storeThumbnailData(stale, forKey: stableID, token: "t1")
+    let refreshed = RefreshedKeys()
+
+    _ = await EditorCanvasSeed.cloudThumbnailBytes(
+      asset: asset, catalog: catalog,
+      server: StubSource(thumbBytes: Data([0x0C, 0x0D]), token: "t2"),
+      cloudThumbs: CloudThumbCache(baseDir: cloudThumbsDir))
+    XCTAssertEqual(refreshed.all, [stableID.qualified(byHost: server.cacheHostKey)])
+
+    await ThumbnailDiskCache.shared.storeThumbnailData(stale, forKey: stableID, token: "t1")
+    _ = await EditorCanvasSeed.cloudThumbnailBytes(
+      asset: asset, catalog: catalog, server: StubSource(thumbBytes: stale, token: "t2"),
+      cloudThumbs: CloudThumbCache(baseDir: cloudThumbsDir))
+    XCTAssertEqual(refreshed.all.count, 1, "identical bytes post nothing")
   }
 
   func testNoThumbnailAnywhereLeavesTheSeedEmptyWithoutDownloadingTheOriginal() async {
