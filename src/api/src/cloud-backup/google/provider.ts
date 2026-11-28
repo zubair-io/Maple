@@ -67,9 +67,28 @@ function listingFolderParts(prefix: string): string[] {
   return prefix.endsWith('/') ? pathParts : pathParts.slice(0, -1);
 }
 
+const VALIDATION_REUSE_MS = 30_000;
+const fresh = (verifiedAt: number) => Date.now() - verifiedAt < VALIDATION_REUSE_MS;
+
+/** Re-inserting keeps each map in check order, so stale entries are evicted
+ * from the front and a shared provider holds only the last window's checks. */
+function remember<V extends { at: number }>(cache: Map<string, V>, key: string, value: V) {
+  cache.delete(key);
+  cache.set(key, value);
+  for (const [oldest, entry] of cache) {
+    if (fresh(entry.at)) break;
+    cache.delete(oldest);
+  }
+}
+
 export class GoogleDriveProvider implements BackupProvider {
   readonly client: DriveClient;
-  private readonly folders = new Map<string, string>();
+  private readonly folders = new Map<string, { folderId: string; at: number }>();
+  // Resolving the upload folder chain for every file repeats the same
+  // sequential Drive round trips; a check that passed moments ago is reused
+  // there. Checks on existing objects (inspect, verify, remove) never reuse.
+  private readonly managedFolders = new Map<string, { at: number }>();
+  private rootVerifiedAt = Number.NEGATIVE_INFINITY;
   constructor(
     readonly rootId: string,
     token: (signal?: AbortSignal) => Promise<string>,
@@ -80,6 +99,10 @@ export class GoogleDriveProvider implements BackupProvider {
   }
   async probe(signal?: AbortSignal) {
     await validateGoogleRoot(this.client, this.rootId, signal);
+    this.rootVerifiedAt = Date.now();
+  }
+  private async probeRecent(signal?: AbortSignal) {
+    if (!fresh(this.rootVerifiedAt)) await this.probe(signal);
   }
   async objectTarget(
     key: string,
@@ -118,15 +141,15 @@ export class GoogleDriveProvider implements BackupProvider {
     for (const name of parts) {
       path = path ? `${path}/${name}` : name;
       const cached = this.folders.get(path);
-      if (cached) {
-        await this.assertManagedFolder(cached, signal);
-        parentId = cached;
+      if (cached && fresh(cached.at)) {
+        await this.assertRecentlyManagedFolder(cached.folderId, signal);
+        parentId = cached.folderId;
         continue;
       }
-      if (parentId !== this.rootId) await this.assertManagedFolder(parentId, signal);
+      if (parentId !== this.rootId) await this.assertRecentlyManagedFolder(parentId, signal);
       const folderId = await this.resolveFolder(parentId, name, path, create, signal);
       if (!folderId) return null;
-      this.folders.set(path, folderId);
+      remember(this.folders, path, { folderId, at: Date.now() });
       parentId = folderId;
     }
     return parentId;
@@ -229,6 +252,14 @@ export class GoogleDriveProvider implements BackupProvider {
       visited.add(parentId);
       parentId = await this.parentWithinRoot(parentId, signal);
     }
+  }
+  /** Resolving an upload target may reuse a recent check; every ancestry check
+   * on an existing object, and so every removal, fetches current ancestry. */
+  private async assertRecentlyManagedFolder(folderId: string, signal?: AbortSignal) {
+    const verified = this.managedFolders.get(folderId);
+    if (verified && fresh(verified.at)) return;
+    await this.assertManagedFolder(folderId, signal);
+    remember(this.managedFolders, folderId, { at: Date.now() });
   }
   private async assertManagedFolder(folderId: string, signal?: AbortSignal): Promise<void> {
     const folder = await this.client.metadata(folderId, signal);
@@ -344,7 +375,7 @@ export class GoogleDriveProvider implements BackupProvider {
       !/^[a-f0-9]{64}$/.test(source.sha256)
     )
       throw new Error('Invalid Google mirror file identity.');
-    await this.probe(options.signal);
+    await this.probeRecent(options.signal);
     return publishGoogleMirrorFile(this, key, relativePath, source, options);
   }
   private async currentObjectMetadata(
