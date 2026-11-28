@@ -78,9 +78,9 @@ extension LocalFileOperations {
     let fm = FileManager.default
     let sourceSidecarURL = SidecarPath.sidecarURL(for: source)
     let hadSidecar = fm.fileExists(atPath: sourceSidecarURL.path)
-    let variants = try LocalWorkflowVariants.paired(with: source)
+    let variants = try LocalPairedEditCopies.paired(with: source)
     let variantMoves = try variants.map {
-      (source: $0, target: try LocalWorkflowVariants.target(for: $0, from: source, to: target))
+      (source: $0, target: try LocalPairedEditCopies.target(for: $0, from: source, to: target))
     }
     let targetSidecarURL = SidecarPath.sidecarURL(for: target)
     var moved: [(source: URL, target: URL)] = []

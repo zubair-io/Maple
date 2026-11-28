@@ -117,7 +117,7 @@ public enum LocalFileOperations {
     try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
     let sourceSidecarURL = SidecarPath.sidecarURL(for: sourcePrimaryURL)
     let hasSourceSidecar = fm.fileExists(atPath: sourceSidecarURL.path)
-    let sourceVariants = try LocalWorkflowVariants.paired(with: sourcePrimaryURL)
+    let sourceVariants = try LocalPairedEditCopies.paired(with: sourcePrimaryURL)
     let (resolvedTargetURL, renamed) = try await resolveCollision(
       at: targetURL, collision: collision, ownSidecar: hasSourceSidecar ? sourceSidecarURL : nil,
       sourcePrimaryURL: sourcePrimaryURL)
@@ -143,7 +143,7 @@ public enum LocalFileOperations {
     // Replace must not silently attach an old occupant's UUID branches to
     // this photo. Other policies have already resolved these collisions to
     // a free stem above; recheck before any byte copies for a racing writer.
-    if try LocalWorkflowVariants.occupied(at: resolvedTargetURL, excluding: sourcePrimaryURL) {
+    if try LocalPairedEditCopies.occupied(at: resolvedTargetURL, excluding: sourcePrimaryURL) {
       throw FileOperationError.destinationExists(resolvedTargetURL.path)
     }
     let sourceClaimed = SidecarOwnership.localStemClaimedBySibling(
@@ -152,7 +152,7 @@ public enum LocalFileOperations {
     let variantPairs = try sourceVariants.map { variant in
       (
         source: variant,
-        destination: try LocalWorkflowVariants.target(
+        destination: try LocalPairedEditCopies.target(
           for: variant, from: sourcePrimaryURL, to: resolvedTargetURL)
       )
     }.filter { !SidecarOwnership.sameLocalFile($0.source.path, $0.destination.path) }
@@ -179,7 +179,7 @@ public enum LocalFileOperations {
         let type = try fm.attributesOfItem(atPath: pair.source.path)[.type] as? FileAttributeType
         guard type == .typeRegular else {
           throw FileOperationError.underlying(
-            "workflow branch is not a regular file: \(pair.source.path)")
+            "edit copy is not a regular file: \(pair.source.path)")
         }
         let temp = try stageVerifiedCopy(from: pair.source, forDestination: pair.destination)
         variantTemps.append((pair.source, pair.destination, temp))
@@ -555,7 +555,7 @@ public enum LocalFileOperations {
   ) throws -> Bool {
     let fm = FileManager.default
     guard !fm.fileExists(atPath: path) else { return true }
-    if try LocalWorkflowVariants.occupied(
+    if try LocalPairedEditCopies.occupied(
       at: URL(fileURLWithPath: path), excluding: sourcePrimaryURL)
     {
       return true

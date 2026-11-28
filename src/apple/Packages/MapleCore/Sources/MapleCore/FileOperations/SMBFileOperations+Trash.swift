@@ -187,6 +187,10 @@ extension SMBFileOperations {
     {
       try? await transport.removeItem(atPath: sidecarPath)
     }
+    if await !SidecarOwnership.smbStemClaimedBySibling(item.primaryPath, transport: transport) {
+      let copies = (try? await conflictCopyPaths(of: item.primaryPath, transport: transport)) ?? []
+      await discardAll(copies, transport: transport)
+    }
     await removeTrashedMarker(forItemAt: item.primaryPath, transport: transport)
   }
 

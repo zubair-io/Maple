@@ -88,11 +88,14 @@ public enum SMBFileOperations {
     // exists (moving into an existing folder); a genuinely-missing one
     // surfaces for real on the `copyItem` call that follows.
     try? await transport.createDirectory(atPath: destinationDir)
+    let folders = try await SMBFolderScan.load(
+      sourcePrimaryPath: sourcePrimaryPath, destinationDirectory: destinationDir,
+      transport: transport)
     let sourceSidecarPath = sidecarPath(for: sourcePrimaryPath)
     let hasSourceSidecar = await exists(sourceSidecarPath, transport: transport)
     let (resolvedTargetPath, renamed) = try await resolveCollision(
-      at: targetPath, collision: collision,
-      ownSidecar: hasSourceSidecar ? sourceSidecarPath : nil, transport: transport)
+      at: targetPath, collision: collision, ownSidecar: hasSourceSidecar ? sourceSidecarPath : nil,
+      folders: folders, transport: transport)
     let sidecarTargetPath = sidecarPath(for: resolvedTargetPath)
 
     // The shared-sidecar ownership rule (#4707, docs/xmp-canonical-format.md
@@ -106,16 +109,20 @@ public enum SMBFileOperations {
       ? await SidecarOwnership.smbSidecarAlreadyCarried(
         sourceSidecarPath, at: sidecarTargetPath, transport: transport)
       : false
-    let destinationClaimed = await SidecarOwnership.smbStemClaimedBySibling(
-      resolvedTargetPath, excluding: [sourcePrimaryPath] + displacing, transport: transport)
+    let destinationClaimed = SidecarOwnership.stemClaimedBySibling(
+      primaryPath: resolvedTargetPath, siblingNames: folders.destinationNames,
+      excluding: [sourcePrimaryPath] + displacing)
     if hasSourceSidecar, destinationSidecarOccupied, !joinsCarriedSidecar,
       collision != .replace || destinationClaimed
     {
       throw FileOperationError.destinationExists(sidecarTargetPath)
     }
-    let sourceClaimed = await SidecarOwnership.smbStemClaimedBySibling(
-      sourcePrimaryPath, excluding: [resolvedTargetPath], transport: transport)
+    let sourceClaimed = SidecarOwnership.stemClaimedBySibling(
+      primaryPath: sourcePrimaryPath, siblingNames: folders.sourceNames,
+      excluding: [resolvedTargetPath])
     let copiesSidecar = hasSourceSidecar && !sidecarMapsOntoItself && !joinsCarriedSidecar
+    let conflicts = try await folders.conflictCopyPlan(
+      to: resolvedTargetPath, transport: transport)
     var sidecarTmp: String?
 
     let primaryTmp = try await stageVerifiedCopy(
@@ -130,14 +137,21 @@ public enum SMBFileOperations {
       }
     }
 
+    let stagedConflicts = try await stageConflictCopies(
+      conflicts.toCopy, removingOnFailure: [primaryTmp] + (sidecarTmp.map { [$0] } ?? []),
+      transport: transport)
+
     if joinsCarriedSidecar,
       !(await SidecarOwnership.smbSidecarAlreadyCarried(
         sourceSidecarPath, at: sidecarTargetPath, transport: transport))
     {
-      try? await transport.removeItem(atPath: primaryTmp)
+      await discardAll([primaryTmp] + stagedConflicts.map(\.temp), transport: transport)
       throw FileOperationError.destinationExists(sidecarTargetPath)
     }
-    var createdPaths: [String] = []
+    let conflictPaths = try await publishConflictCopies(
+      stagedConflicts, removingOnFailure: [primaryTmp] + (sidecarTmp.map { [$0] } ?? []),
+      transport: transport)
+    var createdPaths = conflictPaths
     let primaryBackup: String?
     do {
       primaryBackup = try await stagePublish(
@@ -146,6 +160,7 @@ public enum SMBFileOperations {
     } catch {
       try? await transport.removeItem(atPath: primaryTmp)
       if let sidecarTmp { try? await transport.removeItem(atPath: sidecarTmp) }
+      await discardAll(conflictPaths, transport: transport)
       throw (error as? FileOperationError)
         ?? .underlying(
           "copy \(sourcePrimaryPath) -> \(resolvedTargetPath) failed: \(error.localizedDescription)"
@@ -163,6 +178,7 @@ public enum SMBFileOperations {
       } catch {
         try? await transport.removeItem(atPath: sidecarTmp)
         try? await transport.removeItem(atPath: resolvedTargetPath)
+        await discardAll(conflictPaths, transport: transport)
         if let primaryBackup {
           try? await transport.moveItem(atPath: primaryBackup, toPath: resolvedTargetPath)
         }
@@ -190,7 +206,9 @@ public enum SMBFileOperations {
       finalPrimaryPath: resolvedTargetPath,
       finalSidecarPath: hasSourceSidecar ? sidecarTargetPath : nil,
       renamedDueToCollision: renamed, createdPaths: createdPaths,
-      retainsSourceSidecar: sidecarMapsOntoItself || sourceClaimed)
+      retainsSourceSidecar: sidecarMapsOntoItself || sourceClaimed,
+      sourceVariantPaths: conflicts.carried.map(\.source),
+      finalVariantPaths: conflicts.carried.map(\.destination))
   }
 
   /// Delete the sources (`mode == .move` only) and clear the OLD
@@ -215,7 +233,7 @@ public enum SMBFileOperations {
     let outcome = RelocateOutcome(
       primaryPath: plan.finalPrimaryPath, sidecarPath: plan.finalSidecarPath,
       renamedDueToCollision: plan.renamedDueToCollision,
-      sidecarFollowed: plan.finalSidecarPath != nil
+      sidecarFollowed: plan.finalSidecarPath != nil || !plan.finalVariantPaths.isEmpty
     )
     guard !plan.isNoop, plan.mode == .move else { return outcome }
 
@@ -225,6 +243,9 @@ public enum SMBFileOperations {
       fileOpsLog.error(
         "finalizeRelocate: source primary remove failed after a verified copy — a duplicate is left on the share (\(plan.sourcePrimaryPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
       )
+    }
+    if !plan.retainsSourceSidecar {
+      await removeCarriedConflictCopies(plan, transport: transport)
     }
     if let sourceSidecarPath = plan.sourceSidecarPath, !plan.retainsSourceSidecar {
       // Recheck at cleanup too: a joined or copied sidecar may change after
@@ -361,7 +382,7 @@ public enum SMBFileOperations {
   /// same directory (staying out of `/.maple/trash` and requiring no
   /// share-root write permissions) and returned so the caller can roll
   /// back or delete it after any companion sidecar publish completes.
-  private static func stagePublish(
+  static func stagePublish(
     _ tmp: String, to destination: String, allowReplace: Bool, transport: SMBFileTransport
   ) async throws -> String? {
     guard let destAttrs = try? await transport.attributesOfItem(atPath: destination) else {
@@ -438,10 +459,11 @@ public enum SMBFileOperations {
   /// Mirrors `LocalFileOperations.resolveCollision`.
   private static func resolveCollision(
     at targetPath: String, collision: CollisionPolicy, ownSidecar: String?,
-    transport: SMBFileTransport
+    folders: SMBFolderScan, transport: SMBFileTransport
   ) async throws -> (path: String, renamed: Bool) {
     let occupied = { (candidate: String) in
-      await assetDestinationOccupied(candidate, ownSidecar: ownSidecar, transport: transport)
+      await assetDestinationOccupied(
+        candidate, ownSidecar: ownSidecar, folders: folders, transport: transport)
     }
     guard await occupied(targetPath) else { return (targetPath, false) }
     let attrs = (try? await transport.attributesOfItem(atPath: targetPath)) ?? [:]
@@ -466,9 +488,10 @@ public enum SMBFileOperations {
   /// derived sidecar name unless that is the moving asset's own sidecar or
   /// already holds exactly its bytes.
   static func assetDestinationOccupied(
-    _ path: String, ownSidecar: String?, transport: SMBFileTransport
+    _ path: String, ownSidecar: String?, folders: SMBFolderScan, transport: SMBFileTransport
   ) async -> Bool {
     guard await !exists(path, transport: transport) else { return true }
+    guard await !folders.conflictCopiesBlocked(at: path, transport: transport) else { return true }
     let sidecar = sidecarPath(for: path)
     guard await exists(sidecar, transport: transport) else { return false }
     guard let own = ownSidecar else { return true }

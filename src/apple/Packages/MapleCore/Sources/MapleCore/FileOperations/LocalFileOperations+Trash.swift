@@ -60,7 +60,7 @@ extension LocalFileOperations {
       let fm = FileManager.default
       let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
       let sidecarShared = SidecarOwnership.localStemClaimedBySibling(primaryURL)
-      let variants = try LocalWorkflowVariants.paired(with: primaryURL)
+      let variants = try LocalPairedEditCopies.paired(with: primaryURL)
       var originals = [primaryURL]
       if !sidecarShared {
         if fm.fileExists(atPath: sidecarURL.path) { originals.append(sidecarURL) }
@@ -298,7 +298,7 @@ extension LocalFileOperations {
     try requireUnderMapleTrash(item.primaryPath, libraryRoot: libraryRoot)
     let fm = FileManager.default
     let primary = URL(fileURLWithPath: item.primaryPath)
-    let variants = try LocalWorkflowVariants.paired(with: primary)
+    let variants = try LocalPairedEditCopies.paired(with: primary)
     let shared = SidecarOwnership.localStemClaimedBySibling(primary)
     try fm.removeItem(atPath: item.primaryPath)
     if !shared {
