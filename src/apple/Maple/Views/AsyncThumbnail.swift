@@ -23,19 +23,38 @@ struct AsyncThumbnail<Content: View>: View {
   /// `nil` while loading / on failure, in which case `content` renders its
   /// own empty state. Decoded off the main actor (never in `body`).
   @State private var decoded: CGImage?
+  @State private var shown: ThumbnailRefresh.ShownBitmap?
+
+  private var thumbnailSource: ThumbnailSource { .local(asset, source: nil) }
 
   private var reloadKey: String {
     DevelopedImageRevision.shared.reloadKey(
-      for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
+      for: asset.stableID ?? asset.id.uuidString, source: thumbnailSource)
   }
 
   var body: some View {
     content(decoded)
       .task(id: reloadKey) {
+        let loadKey = reloadKey
+        shown = nil
         let key = await DevelopedImageRevision.shared.decodedKeyAsync(
-          for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
+          for: asset.stableID ?? asset.id.uuidString, source: thumbnailSource)
         guard !Task.isCancelled else { return }
+        shown = .init(loadKey: loadKey, bitmapKey: key)
+        ThumbnailRefresh.track(bitmapKey: key, for: thumbnailSource)
         await load(key: key)
+      }
+      .onReceive(ThumbnailRefresh.refreshes) { notification in
+        let snapshot = shown
+        guard
+          let key = ThumbnailRefresh.bitmapKey(
+            toRefresh: thumbnailSource, loadKey: reloadKey, shown: snapshot, on: notification)
+        else { return }
+        Task {
+          let image = await ThumbnailRefresh.refreshedImage(for: thumbnailSource, bitmapKey: key)
+          guard let image, shown == snapshot else { return }
+          decoded = image
+        }
       }
   }
 
@@ -72,7 +91,7 @@ struct AsyncThumbnail<Content: View>: View {
     }
     guard !Task.isCancelled else { return }
     if let image {
-      decoded = image
+      decoded = ThumbnailDecoder.latest(image, forKey: key)
     }
   }
 }

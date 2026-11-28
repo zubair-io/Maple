@@ -418,10 +418,12 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
     XCTAssertEqual(ThumbnailDecoder.cachedImage(forKey: secondBitmap)?.width, 8)
   }
 
-  func testAWarmingServerDoesNotHoldBackAnotherServersRefetch() async {
-    let (warming, warmingKey, _) = await staleAsset(onServer: "https://a.example")
+  func testAWarmingServerDoesNotHoldBackAnotherServersRefetch() async throws {
+    let (warming, _, warmingShown) = await staleAsset(onServer: "https://a.example")
     let (held, _, _) = await staleAsset(onServer: "https://a.example")
-    let (healthy, healthyKey, _) = await staleAsset(onServer: "https://b.example")
+    let (healthy, _, healthyShown) = await staleAsset(onServer: "https://b.example")
+    let warmingKey = try XCTUnwrap(warmingShown.refreshKey)
+    let healthyKey = try XCTUnwrap(healthyShown.refreshKey)
     let warmingSource = Source(token: "t2", answer: .serverNotReady)
     let healthySource = Source(token: "t2", answer: .bytes(newBytes))
     let finished = FinishedStaleRefreshes()
@@ -437,6 +439,29 @@ final class StaleCloudThumbnailRefreshTests: XCTestCase {
     let requestsToWarming = await warmingSource.requests
     XCTAssertEqual(queued, 1, "the warming server's refetch stays queued")
     XCTAssertEqual(requestsToWarming, 1)
+  }
+
+  func testTheSamePathOnTwoServersIsRefetchedOnEach() async throws {
+    let (first, key, firstShown) = await staleAsset(onServer: "https://a.example")
+    let second = AssetRef(
+      displayName: "x.dng", hintExtension: "dng", stableID: key,
+      thumbnailProvenance: .cloud(server: URL(string: "https://b.example")!),
+      bytesProvider: { Data() })
+    let firstKey = try XCTUnwrap(firstShown.refreshKey)
+    let secondKey = try XCTUnwrap(ThumbnailSource.local(second, source: nil).refreshKey)
+    let firstSource = Source(token: "t2", answer: .held)
+    let secondSource = Source(token: "t2", answer: .held)
+    let finished = FinishedStaleRefreshes()
+    let loader = await loader(finishing: finished)
+
+    _ = await loader.load(for: first, from: firstSource)
+    _ = await loader.load(for: second, from: secondSource)
+    await waitUntil { await firstSource.requests == 1 }
+    await waitUntil { await secondSource.requests == 1 }
+    await firstSource.release(with: newBytes)
+    await secondSource.release(with: newBytes)
+    await waitUntil { finished.contains(firstKey) }
+    await waitUntil { finished.contains(secondKey) }
   }
 
   func testPendingRefetchesRunNewestFirstWithinABoundAndDroppedKeysAreRefetchedLater()

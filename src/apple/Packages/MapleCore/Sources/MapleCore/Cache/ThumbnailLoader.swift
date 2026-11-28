@@ -57,7 +57,7 @@ public actor ThumbnailLoader {
   /// server again but never downloads them a second time.
   var unrenderableSourcelessKeys: Set<String> = []
 
-  /// Sourceless keys whose token-stale cached thumbnail was refetched, is
+  /// Server-qualified keys of sourceless photos whose token-stale cached thumbnail was refetched, is
   /// being refetched, or waits in `pendingStaleRefetches`, this launch.
   var staleRefreshedKeys: Set<String> = []
   /// Waiting refetches, newest last: the photo shown most recently goes first.

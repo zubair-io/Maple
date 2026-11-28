@@ -150,14 +150,16 @@ extension ThumbnailLoader {
   }
 
   private func refreshStaleThumbnail(_ refetch: StaleRefetch) {
-    if let queued = pendingStaleRefetches.firstIndex(where: { $0.key == refetch.key }) {
+    if let queued = pendingStaleRefetches.firstIndex(where: {
+      $0.refreshKey == refetch.refreshKey
+    }) {
       pendingStaleRefetches.append(pendingStaleRefetches.remove(at: queued))
       return
     }
-    guard staleRefreshedKeys.insert(refetch.key).inserted else { return }
+    guard staleRefreshedKeys.insert(refetch.refreshKey).inserted else { return }
     pendingStaleRefetches.append(refetch)
     if pendingStaleRefetches.count > Self.maxPendingStaleRefetches {
-      staleRefreshedKeys.remove(pendingStaleRefetches.removeFirst().key)
+      staleRefreshedKeys.remove(pendingStaleRefetches.removeFirst().refreshKey)
     }
     startPendingStaleRefetches()
   }
@@ -171,7 +173,7 @@ extension ThumbnailLoader {
       runningStaleRefetches += 1
       Task.detached(priority: .utility) {
         await self.fetchStaleThumbnail(next)
-        await self.finishStaleRefetch(next.key)
+        await self.finishStaleRefetch(next.refreshKey)
       }
     }
   }
