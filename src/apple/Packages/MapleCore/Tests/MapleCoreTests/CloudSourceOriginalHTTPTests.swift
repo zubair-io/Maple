@@ -87,7 +87,7 @@ final class CloudSourceOriginalHTTPTests: XCTestCase {
     let ref = ImageRef(id: "fs:/srv/photos/Library/My Album/a #?.dng", displayName: "a #?.dng")
     let asset = AssetRef(
       displayName: ref.displayName, hintExtension: "dng",
-      originalFileWriter: { try await source.writeOriginal(for: ref, to: $0) },
+      originalFileWriter: { try await source.writeOriginal(for: ref, to: $0, onProgress: $1) },
       bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -111,7 +111,7 @@ final class CloudSourceOriginalHTTPTests: XCTestCase {
     let missing = ImageRef(id: "fs:/srv/photos/Library/missing.dng", displayName: "missing.dng")
     let failed = AssetRef(
       displayName: missing.displayName, hintExtension: "dng",
-      originalFileWriter: { try await source.writeOriginal(for: missing, to: $0) },
+      originalFileWriter: { try await source.writeOriginal(for: missing, to: $0, onProgress: $1) },
       bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
     do {
       try await AssetDragFiles.shared.writeOriginal(
@@ -136,7 +136,7 @@ final class CloudSourceOriginalHTTPTests: XCTestCase {
       thumbnailProvenance: .cloud(server: fixture.url),
       catalog: CatalogRef(
         serverID: fixture.url, folderID: "f1", absPath: "/old/path.dng", address: "library:old.dng"),
-      originalFileWriter: { _ in throw ImageSourceError.notFound("old path must not be used") },
+      originalFileWriter: { _, _ in throw ImageSourceError.notFound("old path must not be used") },
       bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
     let path = "/srv/photos/Library/My Album/renamed #?.dng"
     let renamed = try asset.renamedCloud(to: "renamed #?.dng", at: path, source: source)

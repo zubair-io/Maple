@@ -65,6 +65,8 @@ struct MapleApp: App {
     #endif
     #if os(macOS)
       AgentBridgeController.shared.syncWithPreference()
+      // #6209: copies a crashed run staged for the clipboard go as the model is created.
+      Task { @MainActor in _ = AssetFileClipboard.shared }
     #endif
 
     #if DEBUG

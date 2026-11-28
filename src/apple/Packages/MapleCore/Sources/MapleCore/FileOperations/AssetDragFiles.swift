@@ -19,7 +19,11 @@ public actor AssetDragFiles {
   }
 
   /// Never moves, renders, or overwrites an original (or an existing destination).
-  public func writeOriginal(_ asset: AssetRef, to destination: URL) async throws {
+  /// `onProgress` hears the transfer of a remote original; a local copy reports none.
+  public func writeOriginal(
+    _ asset: AssetRef, to destination: URL,
+    onProgress: @escaping AssetRef.OriginalFileProgress = { _, _ in }
+  ) async throws {
     if let original = asset.primaryURL, original.isFileURL {
       let scope = asset.scopeParentURL ?? original
       let accessing = scope.startAccessingSecurityScopedResource()
@@ -40,7 +44,7 @@ public actor AssetDragFiles {
     }
     let photoKitID = Self.photoKitLocalID(of: asset)
     let photoKitWriter: AssetRef.OriginalFileWriter? = photoKitID.map { localID in
-      { try await PhotoKitOriginalFile.write(localID: localID, to: $0) }
+      { destination, _ in try await PhotoKitOriginalFile.write(localID: localID, to: destination) }
     }
     guard let writer = asset.originalFileWriter ?? photoKitWriter else {
       throw ImageSourceError.notFound(asset.displayName)
@@ -50,7 +54,7 @@ public actor AssetDragFiles {
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false)
     defer { try? FileManager.default.removeItem(at: staging) }
     let temporary = staging.appendingPathComponent(Self.fileName(for: asset))
-    try await writer(temporary)
+    try await writer(temporary, onProgress)
     try Task.checkCancellation()
     try publish(to: destination) { try FileManager.default.moveItem(at: temporary, to: $0) }
   }

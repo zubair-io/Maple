@@ -233,8 +233,8 @@ public final class BrowseViewModel {
           smbPath: capturedRef.smbPath,
           smbSourceID: capturedRef.smbSourceID,
           originalFileWriter: (capturedSource as? SMBSource).map { smb in
-            { @Sendable destination in
-              try await smb.writeOriginal(for: capturedRef, to: destination)
+            { @Sendable destination, onProgress in
+              try await smb.writeOriginal(for: capturedRef, to: destination, onProgress: onProgress)
             }
           },
           bytesProvider: { [capturedSource, capturedRef] in
@@ -472,8 +472,9 @@ public final class BrowseViewModel {
           ),
           livePhoto: img.livePhoto,
           stack: RawJpegStacking.cloudStack(for: img),
-          originalFileWriter: { destination in
-            try await capturedSource.writeOriginal(for: capturedRef, to: destination)
+          originalFileWriter: { destination, onProgress in
+            try await capturedSource.writeOriginal(
+              for: capturedRef, to: destination, onProgress: onProgress)
           },
           bytesProvider: { [capturedSource, capturedRef] in
             try await capturedSource.rawBytes(for: capturedRef)

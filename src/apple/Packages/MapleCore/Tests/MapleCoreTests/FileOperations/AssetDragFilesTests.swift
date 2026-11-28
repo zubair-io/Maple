@@ -28,6 +28,24 @@ final class AssetDragFilesTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBytes)
   }
 
+  func testRemoteDragForwardsTheTransferProgressToTheCaller() async throws {
+    let asset = AssetRef(
+      displayName: "IMG_1.dng", hintExtension: "dng",
+      originalFileWriter: { destination, onProgress in
+        onProgress(10, 40)
+        onProgress(40, 40)
+        try Data([1]).write(to: destination)
+      }, bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
+    let reports = ProgressLog()
+
+    try await AssetDragFiles.shared.writeOriginal(
+      asset, to: root.appendingPathComponent("IMG_1.dng"),
+      onProgress: { reports.record(received: $0, total: $1) })
+
+    XCTAssertEqual(reports.received, [10, 40])
+    XCTAssertEqual(reports.totals, [40, 40])
+  }
+
   func testRemoteDragWritesFullOriginalWithItsFilename() async throws {
     let bytes = Data([0xFF, 0xD8, 0, 0xFF, 0xD9])
     let asset = remoteAsset(name: "Remote photo.jpg", bytes: bytes)
@@ -64,7 +82,7 @@ final class AssetDragFilesTests: XCTestCase {
   func testRemoteFailureIsReportedWithoutCreatingAFile() async throws {
     let asset = AssetRef(
       displayName: "offline.dng", hintExtension: "dng",
-      originalFileWriter: { destination in
+      originalFileWriter: { destination, _ in
         try Data([1, 2]).write(to: destination)
         throw ImageSourceError.notFound("offline")
       }, bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
@@ -82,7 +100,7 @@ final class AssetDragFilesTests: XCTestCase {
     let chunk = Data(repeating: 42, count: 64 * 1024)
     let asset = AssetRef(
       displayName: "large.dng", hintExtension: "dng",
-      originalFileWriter: { destination in
+      originalFileWriter: { destination, _ in
         XCTAssertTrue(FileManager.default.createFile(atPath: destination.path, contents: nil))
         let file = try FileHandle(forWritingTo: destination)
         defer { try? file.close() }
@@ -97,7 +115,7 @@ final class AssetDragFilesTests: XCTestCase {
   func testCancelledTransferRemovesPartialFileAndDoesNotPublishDestination() async throws {
     let asset = AssetRef(
       displayName: "cancelled.dng", hintExtension: "dng",
-      originalFileWriter: { destination in
+      originalFileWriter: { destination, _ in
         try Data([1, 2]).write(to: destination)
         withUnsafeCurrentTask { $0?.cancel() }
       }, bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
@@ -142,7 +160,7 @@ final class AssetDragFilesTests: XCTestCase {
   private func remoteAsset(name: String, bytes: Data) -> AssetRef {
     AssetRef(
       displayName: name, hintExtension: (name as NSString).pathExtension,
-      originalFileWriter: { try bytes.write(to: $0) },
+      originalFileWriter: { destination, _ in try bytes.write(to: destination) },
       bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
   }
 
@@ -190,4 +208,14 @@ private final class DragDestinationPresenter: NSObject, NSFilePresenter {
     relinquished.fulfill()
     writer(nil)
   }
+}
+
+private final class ProgressLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var entries: [(Int64, Int64?)] = []
+  func record(received: Int64, total: Int64?) {
+    lock.withLock { entries.append((received, total)) }
+  }
+  var received: [Int64] { lock.withLock { entries.map(\.0) } }
+  var totals: [Int64?] { lock.withLock { entries.map(\.1) } }
 }

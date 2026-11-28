@@ -239,7 +239,7 @@ extension AppShell {
         address: asset.address
       ),
       stack: RawJpegStacking.cloudStack(for: asset),
-      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
+      originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0, onProgress: $1) },
       bytesProvider: { try await source.rawBytes(for: imageRef) }
     )
   }

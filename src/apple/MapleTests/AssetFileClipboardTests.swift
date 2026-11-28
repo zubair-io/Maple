@@ -203,7 +203,7 @@
 
       let offline = AssetRef(
         displayName: "offline.dng", hintExtension: "dng",
-        originalFileWriter: { _ in throw ImageSourceError.notFound("offline") },
+        originalFileWriter: { _, _ in throw ImageSourceError.notFound("offline") },
         bytesProvider: { Data() })
       clipboard.copy([offline])
       await clipboard.copyTask?.value
@@ -326,8 +326,158 @@
         TimelineFileActions.tileID("fs:/a.dng"), TimelineFileActions.tileID("fs:/b.dng"))
     }
 
-    private func stagedBatches() throws -> [URL] {
-      try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+    private func stagedBatches(in directory: URL? = nil) throws -> [URL] {
+      try FileManager.default.contentsOfDirectory(
+        at: directory ?? root, includingPropertiesForKeys: nil)
+    }
+
+    @MainActor
+    func testPublishedCopiesAreRemovedAfterTheirLifetime() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1, 2, 3]).write(to: original)
+      let published = Published()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root.appendingPathComponent("clipboard"),
+        lifetime: .milliseconds(20),
+        publish: { published.record($0) },
+        report: { XCTFail("unexpected error: \($0)") })
+
+      clipboard.copy([AssetRef(url: original)])
+      await clipboard.copyTask?.value
+      let staged = try XCTUnwrap(published.latest.first)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+      await clipboard.expiryTask?.value
+
+      XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
+      XCTAssertEqual(try Data(contentsOf: original), Data([1, 2, 3]))
+    }
+
+    @MainActor
+    func testQuittingRemovesEveryStagedCopyAndLeavesTheOriginals() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1, 2, 3]).write(to: original)
+      let staging = root.appendingPathComponent("clipboard")
+      let published = Published()
+      let center = NotificationCenter()
+      let clipboard = AssetFileClipboard(
+        stagingRoot: staging,
+        publish: { published.record($0) },
+        report: { XCTFail("unexpected error: \($0)") },
+        notificationCenter: center)
+      clipboard.copy([AssetRef(url: original)])
+      await clipboard.copyTask?.value
+      XCTAssertEqual(try stagedBatches(in: staging).count, 1)
+
+      center.post(name: NSApplication.willTerminateNotification, object: nil)
+
+      XCTAssertTrue(try stagedBatches(in: staging).isEmpty)
+      XCTAssertEqual(try Data(contentsOf: original), Data([1, 2, 3]))
+    }
+
+    @MainActor
+    func testStartingRemovesCopiesAnEarlierRunLeftBehind() throws {
+      let staging = root.appendingPathComponent("clipboard")
+      let leftover = staging.appendingPathComponent(UUID().uuidString, isDirectory: true)
+      let unrelated = staging.appendingPathComponent("keep me", isDirectory: true)
+      try FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+      try Data([1]).write(to: leftover.appendingPathComponent("IMG.jpg"))
+
+      _ = AssetFileClipboard(
+        stagingRoot: staging, publish: { _ in true }, report: { XCTFail("\($0)") })
+
+      XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: unrelated.path))
+    }
+
+    @MainActor
+    func testRemoteCopyShowsProgressUntilItEnds() async throws {
+      let (reported, reportedSignal) = AsyncStream.makeStream(of: Void.self)
+      let (release, releaseSignal) = AsyncStream.makeStream(of: Void.self)
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root.appendingPathComponent("clipboard"),
+        publish: { _ in true }, report: { XCTFail("\($0)") })
+      let remote = AssetRef(
+        displayName: "IMG.jpg", hintExtension: "jpg",
+        originalFileWriter: { destination, onProgress in
+          onProgress(50, 100)
+          reportedSignal.yield()
+          for await _ in release { break }
+          try Data([1]).write(to: destination)
+        },
+        bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
+
+      clipboard.copy([remote])
+      XCTAssertNotNil(clipboard.progress)
+      for await _ in reported { break }
+      while clipboard.progress?.fraction == nil { await Task.yield() }
+
+      XCTAssertEqual(try XCTUnwrap(clipboard.progress?.fraction), 0.5, accuracy: 0.0001)
+      releaseSignal.yield()
+      await clipboard.copyTask?.value
+      XCTAssertNil(clipboard.progress)
+    }
+
+    @MainActor
+    func testLocalOnlyCopyShowsNoProgress() async throws {
+      let original = root.appendingPathComponent("photo.dng")
+      try Data([1]).write(to: original)
+      let clipboard = AssetFileClipboard(
+        stagingRoot: root.appendingPathComponent("clipboard"),
+        publish: { _ in true }, report: { XCTFail("\($0)") })
+
+      clipboard.copy([AssetRef(url: original)])
+
+      XCTAssertNil(clipboard.progress)
+      await clipboard.copyTask?.value
+    }
+
+    @MainActor
+    func testCancellingARemoteCopyMidTransferClearsItsProgressAndFiles() async throws {
+      let staging = root.appendingPathComponent("clipboard")
+      let published = Published()
+      let (started, startedSignal) = AsyncStream.makeStream(of: Void.self)
+      let clipboard = AssetFileClipboard(
+        stagingRoot: staging,
+        publish: { published.record($0) }, report: { XCTFail("\($0)") })
+      let slow = AssetRef(
+        displayName: "IMG.jpg", hintExtension: "jpg",
+        originalFileWriter: { destination, _ in
+          try Data([1]).write(to: destination)
+          startedSignal.yield()
+          try await Task.sleep(for: .seconds(30))
+        },
+        bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
+
+      clipboard.copy([slow])
+      XCTAssertNotNil(clipboard.progress)
+      for await _ in started { break }
+      XCTAssertEqual(try stagedBatches(in: staging).count, 1, "a partial file exists mid-transfer")
+      clipboard.cancelCopy()
+      await clipboard.copyTask?.value
+
+      XCTAssertNil(clipboard.progress)
+      XCTAssertEqual(published.count, 0)
+      XCTAssertTrue(try stagedBatches(in: staging).isEmpty)
+    }
+
+    @MainActor
+    func testProgressCountsFinishedFilesAndIgnoresALateReport() throws {
+      let progress = AssetCopyProgress(fileCount: 4)
+      progress.report(received: 50, total: 100, forFile: 0)
+      XCTAssertEqual(try XCTUnwrap(progress.fraction), 0.125, accuracy: 0.0001)
+      progress.finishFile()
+      progress.report(received: 100, total: 100, forFile: 0)
+      XCTAssertEqual(try XCTUnwrap(progress.fraction), 0.25, accuracy: 0.0001)
+      XCTAssertEqual(progress.title, "Copying 2 of 4 files")
+    }
+
+    @MainActor
+    func testLoneDownloadWithoutASizeIsIndeterminate() {
+      let progress = AssetCopyProgress(fileCount: 1)
+      progress.report(received: 10, total: nil, forFile: 0)
+      XCTAssertNil(progress.fraction)
+      XCTAssertEqual(progress.title, "Copying file")
     }
 
     @MainActor
@@ -349,7 +499,7 @@
     private func remoteAsset(name: String, bytes: Data) -> AssetRef {
       AssetRef(
         displayName: name, hintExtension: (name as NSString).pathExtension,
-        originalFileWriter: { try bytes.write(to: $0) },
+        originalFileWriter: { destination, _ in try bytes.write(to: destination) },
         bytesProvider: { throw ImageSourceError.notFound("must not buffer original") })
     }
   }
