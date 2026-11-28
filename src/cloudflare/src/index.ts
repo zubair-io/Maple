@@ -13,7 +13,10 @@
  *      R2 keys are path-keyed, so the bytes behind a key change on edit.
  *      A `?v=` request (#6016) is a hit only when the object's recorded
  *      thumb version matches; it is then immutable for the client. Any other
- *      versioned request goes to the origin and refreshes the object.
+ *      versioned request goes to the origin and refreshes the object. If the
+ *      origin cannot be reached, the copy the edge holds is answered instead,
+ *      revalidating, never immutable: its bytes are not the requested version
+ *      (#6013).
  *   4. R2 miss -> forward to the origin with the same bearer token (and any
  *      conditional-request headers), stream the response to the client, and
  *      asynchronously populate R2 for next time (only for a confirmed 200
@@ -32,6 +35,15 @@ const THUMB_VERSION_HEADER = 'x-maple-thumb-version';
 const THUMB_VERSION_METADATA = 'thumb-version';
 const EDGE_CACHEABLE_HEADER = 'x-maple-cacheable';
 const FALLBACK_CONTENT_TYPE = 'image/avif';
+
+/** The origin could not be reached: a gateway-class answer, or Cloudflare's own
+ * origin-error range (520-530). Any other status is the origin speaking: a 404
+ * or 500 is not a reason to hide it behind an older copy. */
+function originUnreachable(status: number): boolean {
+	return (status >= 502 && status <= 504) || (status >= 520 && status <= 530);
+}
+
+type EdgeCopy = R2Object | R2ObjectBody;
 
 function originTarget(incoming: URL, originBaseUrl: string): URL {
 	const target = new URL(originBaseUrl);
@@ -98,10 +110,7 @@ export default {
 		//
 		// HTTP etags are quoted (`If-None-Match: "abc123"`); R2's `onlyIf`
 		// wants the bare value and throws on a quoted one.
-		const ifNoneMatch = request.headers.get('if-none-match')?.replace(/^"|"$/g, '') ?? null;
-		const object = await env.THUMBS_BUCKET.get(key, {
-			onlyIf: ifNoneMatch ? { etagDoesNotMatch: ifNoneMatch } : undefined,
-		});
+		const object = await readEdgeObject(env, key, request);
 
 		const requestedVersion = url.searchParams.get('v');
 		if (object === null) return await fetchFromOriginAndCache(request, env, ctx, key);
@@ -111,29 +120,42 @@ export default {
 		) {
 			// An unread R2 body holds its stream open until the request ends.
 			if ('body' in object) await object.body?.cancel();
-			return await fetchFromOriginAndCache(request, env, ctx, key);
+			return await fetchFromOriginAndCache(request, env, ctx, key, true);
 		}
 		const cacheControl = requestedVersion === null ? REVALIDATE_CACHE : VERSIONED_CACHE;
 
-		if (!('body' in object) || object.body === undefined) {
-			return new Response(null, {
-				status: 304,
-				headers: { etag: object.httpEtag, 'cache-control': cacheControl },
-			});
-		}
-
-		// Prefer the content-type stored alongside the object (set from the
-		// origin's own response header when it was cached) over a hard-coded
-		// guess — the origin could in principle serve a different image format.
-		const headers = new Headers();
-		object.writeHttpMetadata(headers);
-		if (!headers.has('content-type')) headers.set('content-type', FALLBACK_CONTENT_TYPE);
-		headers.set('etag', object.httpEtag);
-		headers.set('cache-control', cacheControl);
-
-		return maybeConvertAvifToJpeg(new Response(object.body, { status: 200, headers }), url);
+		return await edgeResponse(object, cacheControl, url);
 	},
 } satisfies ExportedHandler<Env>;
+
+/** Reads the object under `key`, honouring the client's `If-None-Match` (see
+ * the notes at the call site in `fetch`). */
+async function readEdgeObject(env: Env, key: string, request: Request): Promise<EdgeCopy | null> {
+	const ifNoneMatch = request.headers.get('if-none-match')?.replace(/^"|"$/g, '') ?? null;
+	return await env.THUMBS_BUCKET.get(key, {
+		onlyIf: ifNoneMatch ? { etagDoesNotMatch: ifNoneMatch } : undefined,
+	});
+}
+
+/** The response for an object held in R2: a 304 when the client already has the
+ * bytes (R2 withheld the body), otherwise the stored bytes. Prefers the
+ * content-type stored alongside the object (set from the origin's own response
+ * header when it was cached) over a hard-coded guess: the origin could in
+ * principle serve a different image format. */
+async function edgeResponse(object: EdgeCopy, cacheControl: string, url: URL): Promise<Response> {
+	if (!('body' in object) || object.body === undefined) {
+		return new Response(null, {
+			status: 304,
+			headers: { etag: object.httpEtag, 'cache-control': cacheControl },
+		});
+	}
+	const headers = new Headers();
+	object.writeHttpMetadata(headers);
+	if (!headers.has('content-type')) headers.set('content-type', FALLBACK_CONTENT_TYPE);
+	headers.set('etag', object.httpEtag);
+	headers.set('cache-control', cacheControl);
+	return maybeConvertAvifToJpeg(new Response(object.body, { status: 200, headers }), url);
+}
 
 /** Cache miss path: forward to the origin with the same bearer token and
  * any conditional-request headers (`If-None-Match` — the origin's own
@@ -148,6 +170,7 @@ async function fetchFromOriginAndCache(
 	env: Env,
 	ctx: ExecutionContext,
 	key: string,
+	edgeHeld = false,
 ): Promise<Response> {
 	const originUrl = new URL(request.url);
 	const target = originTarget(originUrl, env.ORIGIN_API_BASE_URL);
@@ -158,10 +181,26 @@ async function fetchFromOriginAndCache(
 	const ifNoneMatch = request.headers.get('if-none-match');
 	if (ifNoneMatch) forwardHeaders.set('if-none-match', ifNoneMatch);
 
-	const originResponse = await fetch(target.toString(), {
+	// `edgeHeld`: the edge holds this thumbnail under another version than the one
+	// requested. That older copy stands in only while the origin cannot be reached.
+	const attempt = await fetch(target.toString(), {
 		method: 'GET',
 		headers: forwardHeaders,
+	}).catch((error: unknown) => {
+		if (!edgeHeld) throw error;
+		console.warn('thumbnail origin unreachable, serving the edge copy', String(error));
+		return null;
 	});
+	if (edgeHeld && (attempt === null || originUnreachable(attempt.status))) {
+		// A failing R2 read must not replace the origin's own answer.
+		const edgeCopy = await readEdgeObject(env, key, request).catch(() => null);
+		if (edgeCopy !== null) {
+			await attempt?.body?.cancel();
+			return await edgeResponse(edgeCopy, REVALIDATE_CACHE, originUrl);
+		}
+	}
+	if (attempt === null) throw new Error('origin unreachable and the edge copy is gone');
+	const originResponse = attempt;
 
 	const clientHeaders = new Headers(originResponse.headers);
 	const edgeCacheable = clientHeaders.get(EDGE_CACHEABLE_HEADER) !== '0';
