@@ -10,8 +10,10 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** A flat real folder behind a document provider that counts listings and opens and can hold one open. */
@@ -23,11 +25,14 @@ class CountingTree : ContentProvider() {
 
     private fun file(uri: Uri) = File(directory, DocumentsContract.getDocumentId(uri).substringAfter('/'))
 
-    private fun documentUri(name: String) =
+    private fun documentUri(path: String) =
         DocumentsContract.buildDocumentUriUsingTree(
             DocumentsContract.buildTreeDocumentUri(AUTHORITY, "root"),
-            "root/$name",
+            path,
         )
+
+    private fun folderOf(uri: Uri) =
+        if (DocumentsContract.getDocumentId(uri) == ROOT) directory else file(uri)
 
     override fun onCreate() = true
 
@@ -39,21 +44,49 @@ class CountingTree : ContentProvider() {
         sortOrder: String?,
     ): Cursor {
         listings.incrementAndGet()
+        val id = DocumentsContract.getDocumentId(uri)
+        listed.computeIfAbsent(id) { AtomicInteger() }.incrementAndGet()
+        listingGate?.takeIf { it.name == id }?.let {
+            listingGate = null
+            it.entered.countDown()
+            check(it.release.await(20, TimeUnit.SECONDS)) { "gate was never released" }
+        }
+        check(!failListings && !failNextListing.getAndSet(false)) { "listing is refused" }
+        val folder = file(uri).takeIf { id != ROOT && it.isDirectory } ?: directory
+        val prefix = if (folder == directory) ROOT else id
         return MatrixCursor(projection).apply {
-            directory.listFiles().orEmpty().sortedBy { it.name }.forEach { entry ->
+            folder.listFiles().orEmpty().sortedBy { it.name }.forEach { entry ->
                 addRow(
                     projection!!.map { column ->
                         when (column) {
-                            Document.COLUMN_DOCUMENT_ID -> "root/${entry.name}"
+                            Document.COLUMN_DOCUMENT_ID -> "$prefix/${entry.name}"
                             Document.COLUMN_DISPLAY_NAME -> entry.name
-                            Document.COLUMN_MIME_TYPE -> "application/octet-stream"
+                            Document.COLUMN_MIME_TYPE ->
+                                if (entry.isDirectory) Document.MIME_TYPE_DIR else "application/octet-stream"
                             Document.COLUMN_SIZE -> entry.length()
                             Document.COLUMN_LAST_MODIFIED -> if (reportsModified) entry.lastModified() else 0
+                            Document.COLUMN_FLAGS ->
+                                if (supportsRename && entry.isFile) Document.FLAG_SUPPORTS_RENAME else 0
                             else -> 0
                         }
                     }
                 )
             }
+            if (folder == directory)
+                phantomNames.forEach { phantom ->
+                    addRow(
+                        projection!!.map { column ->
+                            when (column) {
+                                Document.COLUMN_DOCUMENT_ID -> "$prefix/$phantom"
+                                Document.COLUMN_DISPLAY_NAME -> phantom
+                                Document.COLUMN_MIME_TYPE -> "application/octet-stream"
+                                Document.COLUMN_SIZE -> 1L
+                                Document.COLUMN_LAST_MODIFIED -> System.currentTimeMillis() - 30_000
+                                else -> 0
+                            }
+                        }
+                    )
+                }
         }
     }
 
@@ -62,17 +95,23 @@ class CountingTree : ContentProvider() {
         return when (method) {
             "android:renameDocument" -> {
                 val renamed = checkNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
-                check(file(target).renameTo(File(directory, renamed)))
-                Bundle().apply { putParcelable("uri", documentUri(renamed)) }
+                val folder = file(target).parentFile!!
+                check(file(target).renameTo(File(folder, renamed)))
+                val id = DocumentsContract.getDocumentId(target)
+                Bundle().apply {
+                    putParcelable("uri", documentUri("${id.substringBeforeLast('/')}/$renamed"))
+                }
             }
             "android:deleteDocument" -> {
+                check(!failDeletes) { "deleting is refused" }
                 check(file(target).delete())
                 Bundle()
             }
             "android:createDocument" -> {
                 val created = checkNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
-                check(File(directory, created).createNewFile())
-                Bundle().apply { putParcelable("uri", documentUri(created)) }
+                check(File(folderOf(target), created).createNewFile())
+                val id = DocumentsContract.getDocumentId(target)
+                Bundle().apply { putParcelable("uri", documentUri("$id/$created")) }
             }
             else -> null
         }
@@ -88,7 +127,9 @@ class CountingTree : ContentProvider() {
                 check(it.release.await(20, TimeUnit.SECONDS)) { "gate was never released" }
             }
         }
-        return ParcelFileDescriptor.open(target, ParcelFileDescriptor.parseMode(mode))
+        return ParcelFileDescriptor.open(target, ParcelFileDescriptor.parseMode(mode)).also {
+            DescriptorOs.remember(it.fileDescriptor, target)
+        }
     }
 
     override fun getType(uri: Uri): String? = null
@@ -100,12 +141,32 @@ class CountingTree : ContentProvider() {
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?) = 0
 
     companion object {
+        const val ROOT = "root"
         const val AUTHORITY = "app.justmaple.aperture.test.counting-tree"
         lateinit var directory: File
         val listings = AtomicInteger()
+        val listed = ConcurrentHashMap<String, AtomicInteger>()
+        @Volatile var listingGate: Gate? = null
         val opens = AtomicInteger()
         @Volatile var gate: Gate? = null
         @Volatile var reportsModified = true
+        @Volatile var failDeletes = false
+        @Volatile var supportsRename = false
+        @Volatile var failListings = false
+        val failNextListing = AtomicBoolean()
+        @Volatile var phantomNames: List<String> = emptyList()
+
+        fun resetFlags() {
+            listingGate = null
+            gate = null
+            reportsModified = true
+            failDeletes = false
+            supportsRename = false
+            failListings = false
+            failNextListing.set(false)
+            phantomNames = emptyList()
+            DescriptorOs.forgetAll()
+        }
 
         val folder: Uri =
             DocumentsContract.buildDocumentUriUsingTree(

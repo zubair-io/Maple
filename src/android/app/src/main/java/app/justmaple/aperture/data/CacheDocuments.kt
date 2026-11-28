@@ -16,11 +16,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Derived files are disposable. Replacement uses a complete sibling, never an in-place write. */
-internal class CacheDocuments(private val context: Context) {
+internal class CacheDocuments(context: Context, private val documents: LocalDocuments) {
     private val resolver = context.contentResolver
-    private val documents = LocalDocuments(context)
 
-    fun entries(directory: Uri) = documents.list(directory, fresh = true)
+    /** The view's shared listing, for lookups; publication verifies against [fresh]. */
+    fun entries(directory: Uri) = documents.recent(directory)
+
+    private fun fresh(directory: Uri) = documents.list(directory, fresh = true)
 
     fun directory(parent: Uri, tier: SharedCacheTier, create: Boolean): Uri? {
         val maple = childDirectory(parent, ".maple", create) ?: return null
@@ -28,7 +30,7 @@ internal class CacheDocuments(private val context: Context) {
     }
 
     private fun childDirectory(parent: Uri, name: String, create: Boolean): Uri? {
-        val existing = entries(parent).filter { it.name == name }
+        val existing = (if (create) fresh(parent) else entries(parent)).filter { it.name == name }
         if (existing.isNotEmpty()) return existing.singleOrNull()?.takeIf { it.directory }?.uri
         if (!create) return null
         val uri =
@@ -38,7 +40,8 @@ internal class CacheDocuments(private val context: Context) {
                 DocumentsContract.Document.MIME_TYPE_DIR,
                 name,
             ) ?: return null
-        return entries(parent)
+        documents.invalidate(parent)
+        return fresh(parent)
             .singleOrNull { it.uri == uri && it.name == name && it.directory }
             ?.uri
     }
@@ -59,17 +62,19 @@ internal class CacheDocuments(private val context: Context) {
         if (legacy.flags and DocumentsContract.Document.FLAG_SUPPORTS_RENAME == 0) return listed
         return try {
             publication.withLock {
-                val current = entries(directory)
+                val current = fresh(directory)
                 if (find(current, name) != null || find(current, legacy.name) != legacy)
                     return@withLock current
                 verifyDerived(source, legacy.uri)
                 val renamed = rename(legacy.uri, name)
-                val after = entries(directory)
+                documents.invalidate(directory)
+                val after = fresh(directory)
                 // Providers that de-duplicate on rename leave a stray sibling; it is derived data.
                 if (find(after, name)?.uri == renamed) after
                 else {
                     remove(source, renamed)
-                    entries(directory)
+                    documents.invalidate(directory)
+                    fresh(directory)
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -84,13 +89,13 @@ internal class CacheDocuments(private val context: Context) {
         tier: SharedCacheTier,
         input: InputStream,
         invalid: LocalDocument?,
-        current: suspend () -> FolderCacheSource,
+        current: suspend (fresh: Boolean) -> FolderCacheSource,
     ): Uri? = publication.withLock {
         currentCoroutineContext().ensureActive()
-        if (!source.canShare || current() != source) return@withLock null
+        if (!source.canShare || current(false) != source) return@withLock null
         val directory = directory(source.photo.parent!!, tier, true) ?: return@withLock null
         val name = tier.filename(source.photo.name)
-        val initial = entries(directory)
+        val initial = fresh(directory)
         val before = find(initial, name)
         val companions =
             if (tier == SharedCacheTier.Preview)
@@ -112,9 +117,10 @@ internal class CacheDocuments(private val context: Context) {
         var identity: Pair<Long, Long>? = null
         var backup: Uri? = null
         var published: Uri? = null
+        var committed = false
         try {
             // Verify before any truncate, rename, or cleanup: an alias must never touch the source.
-            val staged = find(entries(directory), tempName)
+            val staged = find(fresh(directory), tempName)
             check(staged?.uri == temp) { "Provider changed cache name" }
             check(staged.size == 0L) { "Provider returned an existing cache file" }
             identity =
@@ -155,38 +161,45 @@ internal class CacheDocuments(private val context: Context) {
             } ?: error("Cannot write shared cache")
             identity = verifyDerived(source, temp)
             currentCoroutineContext().ensureActive()
-            if (current() != source || find(entries(directory), name) != before)
+            if (current(true) != source || find(fresh(directory), name) != before)
                 return@withLock null
             if (before != null) {
                 verifyDerived(source, before.uri)
                 backup = rename(before.uri, ".maple-$id.backup.avif")
             }
             published = rename(temp, name)
-            if (find(entries(directory), name)?.uri != published) {
-                remove(source, published, identity)
-                published = null
-                error("Provider cannot replace shared cache")
+            check(find(fresh(directory), name)?.uri == published) {
+                "Provider cannot replace shared cache"
             }
-            val latest = current()
-            if (latest != source) {
-                remove(latest, published, identity)
-                published = null
-                return@withLock null
-            }
+            // A failed or cancelled check leaves `committed` false, so the cleanup below rolls the publication back.
+            if (current(true) != source) return@withLock null
+            committed = true
             // A newly generated canonical AVIF replaces Hosted-private source bindings.
             // Retire only the unchanged records observed before this publication.
-            for (companion in companions) {
-                if (find(entries(directory), companion.name) == companion)
-                    remove(source, companion.uri)
+            runCatching {
+                for (companion in companions) {
+                    if (find(fresh(directory), companion.name) == companion)
+                        remove(source, companion.uri)
+                }
             }
             backup?.let { remove(source, it) }
             backup = null
             published
         } finally {
-            if (owned && published == null) remove(source, temp, identity)
-            // A crash can leave a hidden disposable backup, never a partial canonical image.
-            backup?.let { previous ->
-                if (find(entries(directory), name) == null) runCatching { rename(previous, name) }
+            try {
+                if (!committed) {
+                    published?.let { remove(source, it, identity) }
+                    if (owned) remove(source, temp, identity)
+                }
+                // A crash can leave a hidden disposable backup, never a partial canonical image.
+                backup?.let { previous ->
+                    runCatching {
+                        if (find(fresh(directory), name) == null) rename(previous, name)
+                    }
+                }
+            } finally {
+                // Last, so a listing taken during the cleanup above is not kept.
+                documents.invalidate(directory)
             }
         }
     }

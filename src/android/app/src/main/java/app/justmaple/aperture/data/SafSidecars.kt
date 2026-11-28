@@ -30,18 +30,32 @@ internal class SafSidecars(private val context: Context, private val documents: 
         return SidecarStamp(sidecar?.uri, sidecar?.size ?: 0, sidecar?.modified ?: 0, savedHere)
     }
 
-    fun read(photo: Photo, fresh: Boolean = false): String? {
+    fun read(photo: Photo, fresh: Boolean = false): String? =
+        read(photo, fresh) { folder -> documents.list(folder, fresh) }.first
+
+    fun readRecent(photo: Photo): String? = read(photo, false, documents::recent).first
+
+    /** The sidecar text with the one fresh listing it was found in, for checks that must not see a shared listing. */
+    fun readListed(photo: Photo): Pair<String?, List<LocalDocument>> =
+        read(photo, true, documents::listVerified)
+
+    private fun read(
+        photo: Photo,
+        fresh: Boolean,
+        listing: (Uri) -> List<LocalDocument>,
+    ): Pair<String?, List<LocalDocument>> {
         // A folded RAW shares its sidecar with the hidden JPEG, whose journal is keyed by the JPEG.
         photo.companion?.let(::recover)
         recover(photo)
         val folder = photo.parent ?: error("Missing sidecar folder")
-        val uri = find(documents.list(folder, fresh), photo.sidecarName)?.uri ?: return null
+        val entries = listing(folder)
+        val uri = find(entries, photo.sidecarName)?.uri ?: return null to entries
         return try {
-            text(uri)
+            text(uri) to entries
         } catch (failure: java.io.FileNotFoundException) {
             if (fresh) throw failure
             documents.invalidate(folder)
-            read(photo, fresh = true)
+            read(photo, true) { documents.list(it, true) }
         }
     }
 
@@ -132,46 +146,49 @@ internal class SafSidecars(private val context: Context, private val documents: 
         ) {
             "Invalid sidecar recovery record"
         }
-        val entries = documents.list(folder, fresh = true)
-        val canonical = find(entries, targetName)
-        val backup = find(entries, backupName)
-        val temp = find(entries, tempName)
-        if (canonical != null && (backup != null || !transaction.getBoolean("previous")))
-            check(PhotoLibrary.digest(text(canonical.uri)) == transaction.getString("digest")) {
-                "The sidecar changed during recovery. Recovery files were preserved in this folder."
-            }
-        if (canonical == null) {
-            when {
-                backup != null -> {
-                    check(
-                        PhotoLibrary.digest(text(backup.uri)) == transaction.getString("baseline")
-                    ) {
-                        "The recovery sidecar changed outside Maple"
-                    }
-                    rename(backup.uri, targetName)
+        try {
+            val entries = documents.list(folder, fresh = true)
+            val canonical = find(entries, targetName)
+            val backup = find(entries, backupName)
+            val temp = find(entries, tempName)
+            if (canonical != null && (backup != null || !transaction.getBoolean("previous")))
+                check(PhotoLibrary.digest(text(canonical.uri)) == transaction.getString("digest")) {
+                    "The sidecar changed during recovery. Recovery files were preserved in this folder."
                 }
-                !transaction.getBoolean("previous") && temp != null -> {
-                    val xml = text(temp.uri)
-                    check(PhotoLibrary.digest(xml) == transaction.getString("digest")) {
-                        "Incomplete sidecar recovery file"
+            if (canonical == null) {
+                when {
+                    backup != null -> {
+                        check(
+                            PhotoLibrary.digest(text(backup.uri)) == transaction.getString("baseline")
+                        ) {
+                            "The recovery sidecar changed outside Maple"
+                        }
+                        rename(backup.uri, targetName)
                     }
-                    XmpDocument(xml).serialize()
-                    rename(temp.uri, targetName)
+                    !transaction.getBoolean("previous") && temp != null -> {
+                        val xml = text(temp.uri)
+                        check(PhotoLibrary.digest(xml) == transaction.getString("digest")) {
+                            "Incomplete sidecar recovery file"
+                        }
+                        XmpDocument(xml).serialize()
+                        rename(temp.uri, targetName)
+                    }
+                    else ->
+                        error(
+                            "Interrupted sidecar replacement could not be recovered. The original photo is unchanged."
+                        )
                 }
-                else ->
-                    error(
-                        "Interrupted sidecar replacement could not be recovered. The original photo is unchanged."
-                    )
             }
+            // Re-query because document IDs may change during a provider rename.
+            val restored = documents.list(folder, fresh = true)
+            check(find(restored, targetName) != null) {
+                "Storage provider did not restore the sidecar"
+            }
+            listOf(tempName, backupName).mapNotNull { find(restored, it) }.forEach { remove(it.uri) }
+            check(record.delete()) { "Could not finish sidecar recovery" }
+        } finally {
+            documents.invalidate(folder)
         }
-        // Re-query because document IDs may change during a provider rename.
-        val restored = documents.list(folder, fresh = true)
-        check(find(restored, targetName) != null) {
-            "Storage provider did not restore the sidecar"
-        }
-        listOf(tempName, backupName).mapNotNull { find(restored, it) }.forEach { remove(it.uri) }
-        check(record.delete()) { "Could not finish sidecar recovery" }
-        documents.invalidate(folder)
     }
 
     private fun text(uri: Uri): String =

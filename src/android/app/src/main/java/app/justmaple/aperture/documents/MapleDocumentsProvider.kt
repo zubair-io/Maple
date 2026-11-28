@@ -21,6 +21,7 @@ import android.util.Log
 import app.justmaple.aperture.R
 import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.cloud.CloudStatusException
+import app.justmaple.aperture.data.CloudDerivativeCache
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -54,7 +55,10 @@ class MapleDocumentsProvider : DocumentsProvider() {
     private val originals by lazy {
         CloudOriginalCache(File(host.cacheDir, "documents-provider/originals"), store.api)
     }
-    private val thumbnails by lazy { CloudDocumentThumbnails(cloud, File(host.cacheDir, "thumbnails")) }
+    private val thumbnails by lazy {
+        val folder = File(host.cacheDir, "thumbnails")
+        CloudDocumentThumbnails(CloudDerivativeCache(cloud.http, folder), folder)
+    }
     private val feed by lazy {
         CloudChangeFeed(
             store.api::changes,

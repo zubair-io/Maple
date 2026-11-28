@@ -17,14 +17,14 @@ internal data class CachedFolderDerivative(val image: OpenThumbnail, val inserte
 private class SharedLease(val image: OpenThumbnail, val format: String, val identity: String)
 
 /** The folder owns derivatives and is read in place; private files are capability fallbacks. */
-internal class FolderDerivativeCache(private val context: Context) {
-    private val documents = CacheDocuments(context)
+internal class FolderDerivativeCache(private val context: Context, listings: LocalDocuments) {
+    private val documents = CacheDocuments(context, listings)
     private val folder = File(context.cacheDir, "thumbnails")
     private val mirrorsRetired = AtomicBoolean(false)
 
     suspend fun load(
         edge: Int,
-        snapshot: suspend () -> FolderCacheSource,
+        snapshot: suspend (fresh: Boolean) -> FolderCacheSource,
         render: suspend (FolderCacheSource, File, SharedCacheTier) -> Unit,
     ): CachedFolderDerivative {
         folder.mkdirs()
@@ -32,7 +32,7 @@ internal class FolderDerivativeCache(private val context: Context) {
         val tier = SharedCacheTier.forEdge(edge)
         repeat(2) {
             currentCoroutineContext().ensureActive()
-            val source = snapshot()
+            val source = snapshot(false)
             currentCoroutineContext().ensureActive()
             val entries = optional {
                 documents.directory(source.photo.parent!!, tier, false)?.let { directory ->
@@ -61,7 +61,7 @@ internal class FolderDerivativeCache(private val context: Context) {
             if (shared != null) {
                 val unchanged =
                     try {
-                        snapshot() == source
+                        snapshot(false) == source
                     } catch (failure: Throwable) {
                         shared.image.close()
                         throw failure
@@ -75,7 +75,7 @@ internal class FolderDerivativeCache(private val context: Context) {
             val rendered = ready.image.file!!
             try {
                 currentCoroutineContext().ensureActive()
-                if (snapshot() == source) {
+                if (snapshot(false) == source) {
                     val published = optional {
                         ready.image.input.channel.position(0)
                         documents.publish(source, tier, ready.image.input, entry, snapshot)
@@ -90,7 +90,7 @@ internal class FolderDerivativeCache(private val context: Context) {
                         synchronized(OpenThumbnail.lock) { rendered.delete() }
                         val unchanged =
                             try {
-                                snapshot() == source
+                                snapshot(false) == source
                             } catch (failure: Throwable) {
                                 inPlace.image.close()
                                 throw failure
@@ -100,7 +100,7 @@ internal class FolderDerivativeCache(private val context: Context) {
                         return@repeat
                     }
                     ready.image.input.channel.position(0)
-                    if (snapshot() == source)
+                    if (snapshot(false) == source)
                         return display(ready.image, ready.inserted, "avif", rendered.nameWithoutExtension)
                 }
             } catch (failure: Throwable) {

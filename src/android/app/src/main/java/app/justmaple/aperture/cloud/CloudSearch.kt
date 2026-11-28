@@ -106,6 +106,7 @@ internal object CloudSearchWire {
             CloudLibrary.address(serverId, folderAddress, path.substringBeforeLast('/')),
             assetId = row.optString("_id").takeIf { it.isNotEmpty() && it != "null" },
             companion = if (fold) CloudBrowseWire.companion(serverId, row) else null,
+            thumbToken = CloudBrowseWire.thumbToken(row, "thumb_version"),
         )
     }
 

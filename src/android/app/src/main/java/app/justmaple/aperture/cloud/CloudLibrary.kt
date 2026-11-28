@@ -14,9 +14,14 @@ import org.json.JSONObject
 
 internal class CloudDerivativePending(val retryMillis: Long) : Exception("Cloud photo is indexing")
 
-class CloudLibrary(private val context: Context) {
+class CloudLibrary internal constructor(
+    private val context: Context,
+    connect: (CloudCredentials) -> CloudHttp,
+) {
+    constructor(context: Context) : this(context, ::CloudHttp)
+
     internal val credentials = CloudCredentials(context)
-    internal val http = CloudHttp(credentials)
+    internal val http = connect(credentials)
     internal val stackPolicy = CloudStackPolicy(fetch = { server, path -> http.request(server, path) })
     internal val pairOperations = CloudPairOperations(http, stackPolicy)
     private val signIn = CloudSignIn(credentials)
@@ -125,26 +130,6 @@ class CloudLibrary(private val context: Context) {
 
     fun copyOriginal(photo: Photo, output: OutputStream) =
         http.download(photo.uri.host!!, mediaPath("image", photo.uri), output)
-
-    internal fun derivative(photo: Photo, edge: Int, etag: String?): CloudResponse? {
-        fun get(route: String) =
-            http.request(
-                photo.uri.host!!,
-                mediaPath(route, photo.uri),
-                headers = etag?.let { mapOf("If-None-Match" to it) } ?: emptyMap(),
-            )
-        val primary = get(if (edge > 512) "preview" else "thumb")
-        val response = if (primary.status == 404 && edge > 512) get("thumb") else primary
-        if (response.status == 202) {
-            val seconds = response.retryAfter?.toLongOrNull()?.coerceIn(1, 60) ?: 2
-            throw CloudDerivativePending(seconds * 1_000)
-        }
-        return when (response.status) {
-            404 -> null
-            304 -> response
-            else -> response.requireSuccess()
-        }
-    }
 
     private fun sidecar(uri: Uri): CloudResponse = http.request(uri.host!!, xmpPath(uri))
 

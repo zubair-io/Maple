@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.SystemClock
 import androidx.documentfile.provider.DocumentFile
 import app.justmaple.aperture.cloud.CloudLibrary
+import app.justmaple.aperture.cloud.CloudTransport
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -30,6 +32,7 @@ data class Photo(
     val contentDigest: String? = null,
     val assetId: String? = null,
     val companion: Photo? = null,
+    val thumbToken: String? = null,
 ) {
     val extension
         get() = name.substringAfterLast('.', "").lowercase()
@@ -47,13 +50,22 @@ data class LibraryListing(val folders: List<Folder>, val photos: List<Photo>)
 
 data class LoadedSidecar(val document: XmpDocument, val baseline: String?)
 
-class PhotoLibrary(private val context: Context) {
-    val cloud = CloudLibrary(context)
+class PhotoLibrary internal constructor(
+    private val context: Context,
+    clock: () -> Long,
+    val cloud: CloudLibrary,
+    derivativeCache: (CloudTransport, File) -> CloudDerivativeCache,
+) {
+    constructor(
+        context: Context,
+        clock: () -> Long = SystemClock::elapsedRealtime,
+    ) : this(context, clock, CloudLibrary(context), { http, folder -> CloudDerivativeCache(http, folder) })
+
     private val preferences = context.getSharedPreferences("maple-library", Context.MODE_PRIVATE)
-    internal val local = LocalDocuments(context)
+    internal val local = LocalDocuments(context, clock)
     internal val saf = SafSidecars(context, local)
-    private val shared = FolderDerivativeCache(context)
-    private val derivatives = CloudDerivativeCache(cloud, File(context.cacheDir, "thumbnails"))
+    private val shared = FolderDerivativeCache(context, local)
+    private val derivatives = derivativeCache(cloud.http, File(context.cacheDir, "thumbnails"))
     internal val tiles =
         ThumbnailTiles(ThumbnailBitmapCache.forDevice(context)) { photo, edge ->
             withThumbnail(photo, edge) { _, input ->
@@ -95,6 +107,7 @@ class PhotoLibrary(private val context: Context) {
     suspend fun list(folder: Uri): LibraryListing =
         withContext(Dispatchers.IO) {
             if (CloudLibrary.isCloud(folder)) return@withContext cloud.list(folder)
+            local.invalidate(folder)
             val entries = local.list(folder, fresh = true)
             LibraryListing(
                 entries
@@ -297,7 +310,7 @@ class PhotoLibrary(private val context: Context) {
         val folder = File(context.cacheDir, "thumbnails").apply { mkdirs() }
         if (photo.parent != null && !CloudLibrary.isCloud(photo.uri)) {
             val result =
-                shared.load(edge, { folderCacheSource(photo) }) { source, target, tier ->
+                shared.load(edge, { fresh -> folderCacheSource(photo, fresh) }) { source, target, tier ->
                     withPreview(source.photo, tier.edge) { input ->
                         NativeBridge.sharedDerivative(
                             input.absolutePath,
@@ -316,8 +329,16 @@ class PhotoLibrary(private val context: Context) {
                 throw failure
             }
         }
-        if (CloudLibrary.isCloud(photo.uri) && android.os.Build.VERSION.SDK_INT >= 31) {
-            val remote = derivatives.load(photo, edge)
+        if (CloudLibrary.isCloud(photo.uri) && derivatives.serves(edge)) {
+            val remote =
+                try {
+                    // A tile saved here is newer than its listing's token, so only the server can say what it shows.
+                    derivatives.load(if (savedHere(photo) > 0) photo.copy(thumbToken = null) else photo, edge)
+                } catch (unconverted: CloudDerivativeUnconverted) {
+                    if (unconverted.inserted)
+                        trimCache(folder, THUMBNAIL_BYTES, setOf(unconverted.payload, unconverted.index))
+                    null
+                }
             if (remote != null) {
                 try {
                     if (remote.inserted)
@@ -376,9 +397,9 @@ class PhotoLibrary(private val context: Context) {
             privateSidecar(photo).takeIf { it.exists() }?.let { XmpEncoding.decode(it.readBytes()) }
         else saf.read(photo, fresh)
 
-    internal suspend fun folderCacheSource(photo: Photo): FolderCacheSource = readingSidecar(photo) {
-        val xml = readSidecar(photo, fresh = true)
-        val entries = local.list(photo.parent!!, fresh = true)
+    internal suspend fun folderCacheSource(photo: Photo, fresh: Boolean = false): FolderCacheSource = readingSidecar(photo) {
+        val (xml, entries) =
+            if (fresh) saf.readListed(photo) else saf.readRecent(photo) to local.recent(photo.parent!!)
         val original =
             entries.singleOrNull { it.uri == photo.uri && !it.directory }
                 ?: error("The photo is no longer in this folder")
@@ -436,6 +457,7 @@ class PhotoLibrary(private val context: Context) {
     suspend fun save(photo: Photo, document: XmpDocument, baseline: String?): LoadedSidecar =
         io.exclusive {
             withContext(Dispatchers.IO) {
+                wasWritten(photo)
                 if (CloudLibrary.isCloud(photo.uri))
                     return@withContext cloud.save(photo, document, baseline)
                 val xml = document.serialize()
@@ -455,10 +477,7 @@ class PhotoLibrary(private val context: Context) {
                 }
                 LoadedSidecar(XmpDocument(xml), xml)
             }
-        }.also {
-            wasWritten(photo)
-            tiles.cache.drop(photo.uri.toString())
-        }
+        }.also { tiles.cache.drop(photo.uri.toString()) }
 
     companion object {
         // Journals and sidecar files are shared by every library instance (#4771).

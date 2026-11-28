@@ -10,15 +10,14 @@ import app.justmaple.aperture.data.*
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Decision 12: one cloud grid tile. From API 31 the app asks the thumbnail route; below that it
- * downloads the whole original and renders locally. A loopback server on the device serves the
- * staged RAW as the original and its 512 px AVIF as the thumbnail.
+ * Decision 12: one cloud grid tile. The app asks the thumbnail route on every API level; below 31 it
+ * also converts the AVIF to a private PNG. A loopback server on the device serves the staged RAW as
+ * the original and its 512 px AVIF as the thumbnail.
  */
 @TimingBenchmark
 @RunWith(AndroidJUnit4::class)
@@ -50,7 +49,7 @@ class CloudThumbnailTimingTest {
             try {
                 Timing.fact(
                     "cloud.fixture",
-                    "sdk=${Build.VERSION.SDK_INT} route=${if (Build.VERSION.SDK_INT >= 31) "thumbnail" else "whole-original"} " +
+                    "sdk=${Build.VERSION.SDK_INT} route=thumbnail " +
                         "originalBytes=${server.original.length()} thumbnailBytes=${server.derivative.length()}",
                 )
                 fun tile(): Pair<Double, Long> {
@@ -67,7 +66,7 @@ class CloudThumbnailTimingTest {
                 val measured = List(Timing.rounds) { tile() }
                 val rounds = measured.map { it.first }
                 val served = measured.map { it.second.toDouble() }
-                if (Build.VERSION.SDK_INT >= 31) assertTrue(server.thumbCount > 0) else assertEquals(0, server.thumbCount)
+                assertTrue(server.thumbCount > 0)
                 Timing.report("cloud.tile.sdk${Build.VERSION.SDK_INT}", "ms", rounds,
                     "loopback server on the device, so no network time is included")
                 Timing.report("cloud.tile.sdk${Build.VERSION.SDK_INT}.bytes-served", "bytes", served,
