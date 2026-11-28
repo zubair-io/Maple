@@ -650,3 +650,6 @@ LocalNetworkCandidateOrderTests
 LocalNetworkKeepRouteTests
 # Network-path-change re-probe of LAN addresses (#6036): injected probes, activity and clock.
 LocalNetworkReprobeTests
+# Preview read at the canonical sidecar path (#6070): one 8x4 AVIF in a temp folder,
+# with the source file and its freshness stamp the writer records.
+MapleSidecarPreviewReadTests
