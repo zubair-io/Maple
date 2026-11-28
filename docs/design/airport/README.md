@@ -94,9 +94,11 @@ Everything opens in one horizontal strip of cards.
 
 The tree is the data model; every folder works like a Finder folder.
 
-- Opening a folder shows, in order: the title row (the folder's name, its count, **Show:** a kind filter, Select, grid or list, More), a summary of what's inside, its child folders, then its files.
+- The folder list holds the tree. Under the current folder it lists that folder's pages, grouped **Chats**, **Notes**, **Boards**, **Data** and **Maple**, then its child folders under **Folders**. Show (Picks, Rejected, Edited) and New stay pinned at the foot of the list.
+- Opening a folder shows, in the browse pane: the title row (the folder's name, its count, **Show:** a kind filter, Select, grid or list, More), a summary of what's inside, its child folders, then its photos.
 - A folder shows only its own items; nothing rolls up from children. A child folder inherits its parent's permissions and documents.
-- Pages (memos, boards, chats, data pages) mix into the photo grid as square tiles the size of a photo tile, with their kind and name. There is no separate pages row.
+- Pages (memos, boards, chats, data pages) live only in the folder list; the grid holds photos and video.
+- A folder without photos shows its child folders as cover cards that fill the pane, up to three across: the first photo inside, the name in `title`, and what is inside in `caption`.
 - Grid tiles have no captions. Hover shows Maple's select circle; selected is a `marker` ring with a check; edited is an amber dot. **Select** in the title row starts a batch, and the batch bar floats at the bottom centre.
 - The list view shows the same items as rows with a thumbnail and four columns: Name, Kind, About (counts, or a photo's pick, stars and edited state) and Changed.
 
@@ -110,7 +112,8 @@ The tree is the data model; every folder works like a Finder folder.
 
 ## Photo
 
-- **Preview card.** A click on a photo opens Maple's preview screen at card size (600 wide) on `photo`, with a full-screen button. There is no filmstrip in the card on the desktop and no rating or details panel.
+- **Preview card.** On the desktop and the open Duo, a click on a photo opens Maple's preview screen at card size (600 wide) on `photo`, with a full-screen button. There is no filmstrip in the card and no rating or details panel.
+- **Phone and closed Duo.** A tap on a photo opens it full screen at once. The filmstrip swipes through the folder, and Back returns to it.
 - **Full screen.** The photo takes the whole screen; chrome is hidden until the pointer moves. A view pill sits at the top and the filmstrip at the bottom, with the current frame 1.5× wide and a `marker` underline. Full-screen photo and the full-screen board look and behave alike.
 - **Editing.** Tools float over the photo in panels: a tool rail and one tool panel at a time. The heading says **Edit:** and the photo's name.
 - **Sliders.** Name and value on one line, then an 8 pt capsule. Gradient capsules only for Temperature, Tint, Exposure and colour tools. The thumb ring is `marker` when focused and `changed` when the value is off neutral. Drag is relative; a hold gives fine mode; a double tap resets.
