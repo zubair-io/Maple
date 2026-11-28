@@ -35,7 +35,8 @@ public struct LocalAddressReport: Decodable, Sendable {
     let legacy = ip.flatMap { host in
       port.map { LocalHttpsEndpoint(ip: host, port: $0, scheme: scheme ?? "http") }
     }
-    return [https.flatMap { $0.scheme == "https" ? $0 : nil }, legacy].compactMap { $0 }
+    let secure = https.flatMap { $0.scheme.lowercased() == "https" ? $0 : nil }
+    return [secure, legacy].compactMap { $0 }
   }
 }
 
@@ -44,14 +45,24 @@ public struct LocalHttpsEndpoint: Decodable, Sendable, Equatable {
   public let port: Int
   public let scheme: String
 
+  fileprivate func matches(_ other: LocalHttpsEndpoint) -> Bool {
+    port == other.port && scheme.lowercased() == other.scheme.lowercased()
+      && Self.bareHost(ip) == Self.bareHost(other.ip)
+  }
+
+  private static func bareHost(_ host: String) -> String {
+    host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+  }
+
   fileprivate var url: URL? {
-    guard ["https", "http"].contains(scheme), (1...65535).contains(port),
+    guard ["https", "http"].contains(scheme.lowercased()), (1...65535).contains(port),
       !ip.isEmpty, !ip.contains(where: { $0.isWhitespace }),
       !ip.contains(where: { "/@?#".contains($0) })
     else { return nil }
     var components = URLComponents()
     components.scheme = scheme
-    components.host = ip
+    let bare = Self.bareHost(ip)
+    components.host = bare.contains(":") ? "[\(bare)]" : ip
     components.port = port
     return components.url
   }
@@ -108,8 +119,7 @@ public enum LocalNetworkResolving {
     let candidates = report.candidates.filter {
       !identityIsHTTPS || $0.scheme.lowercased() == "https"
     }
-    // Hostname TLS is validated normally by URLSession; a hostname's
-    // certificate is never reused or trusted for the IP fallback.
+    // A hostname's TLS validation is never reused for the IP fallback.
     let probeCandidate: CandidateProbe =
       probe ?? { endpoint in
         await confirm(endpoint, session: session, timeout: probeTimeout)
@@ -125,9 +135,7 @@ public enum LocalNetworkResolving {
     return (url, LocalNetworkStatus(localURL: url, isConnectedLocally: true))
   }
 
-  /// Whether the server answering at `route` still advertises `route` itself:
-  /// the same check a fresh resolution applies to a candidate, used to keep a
-  /// working LAN route without running a resolution.
+  /// Applies a fresh resolution's candidate check to `route`, to keep a working route without resolving.
   static func confirmRoute(
     _ route: URL, probeTimeout: TimeInterval = 1.5, session: URLSession = .shared
   ) async -> Bool {
@@ -147,12 +155,10 @@ public enum LocalNetworkResolving {
         url: candidate.appending(path: "/api/network/local-address"), session: session,
         timeout: timeout)
     else { return false }
-    return confirmed.candidates.contains(endpoint)
+    return confirmed.candidates.contains { $0.matches(endpoint) }
   }
 
-  // Candidates are tried strictly in order, so the legacy address is only
-  // contacted after the hostname failed: probing it while the hostname
-  // answers could raise the Local Network permission prompt for no benefit.
+  // Strictly in order: probing the legacy address while the hostname answers could raise the Local Network prompt for nothing.
   static func firstAnsweringCandidate(
     of endpoints: [LocalHttpsEndpoint], probe: CandidateProbe
   ) async -> LocalHttpsEndpoint? {
@@ -197,6 +203,7 @@ public final class LocalNetworkResolver {
   private var probes: [String: Task<Void, Never>] = [:]
   private var waiters: [String: [ProbeWaiter]] = [:]
   private var knownServers: [String: (identity: URL, session: URLSession)] = [:]
+  private var everRegistered: Set<String> = []
   private var eventCounter = 0
   private var probeStartedAt: [String: Int] = [:]
   private var lastPathChange = 0
@@ -213,7 +220,7 @@ public final class LocalNetworkResolver {
   private let registeredServers: @MainActor @Sendable () -> [URL]
   private let pathDebounce: Duration
   private let probeBound: Duration
-  // One probe, plus one more for the replacement a path change starts.
+  // One probe plus the replacement a path change starts.
   private var resolveWaitCap: Duration { probeBound * 2 }
   private let sleeper: Sleeper
 
@@ -261,12 +268,7 @@ public final class LocalNetworkResolver {
     statuses[identity.absoluteString]
   }
 
-  /// Like ``effectiveURL(for:)``, but first waits up to `limit` for the
-  /// newest probe of `identity` that is already running, so a folder opened
-  /// while a probe is in flight gets the LAN address instead of keeping the
-  /// public one for its whole life (#6008). Bounded because a probe away
-  /// from home can take seconds to time out on a private LAN address, and a
-  /// folder open must not stall on it. Never starts a probe of its own.
+  /// Like ``effectiveURL(for:)``, but first waits up to `limit` for a running probe (#6008); never starts one.
   public func settledEffectiveURL(
     for identity: URL, waitingAtMost limit: Duration = .milliseconds(500)
   ) async -> URL {
@@ -281,6 +283,9 @@ public final class LocalNetworkResolver {
   public func resolve(identity: URL, session: URLSession = .shared) async {
     let key = identity.absoluteString
     knownServers[key] = (identity, session)
+    if registeredIdentities().contains(Self.normalizedIdentity(identity)) {
+      everRegistered.insert(Self.normalizedIdentity(identity))
+    }
     observeIfNeeded()
     if probes[key] == nil { startProbe(identity: identity, session: session) }
     await awaitNewestProbe(key, upTo: resolveWaitCap)
@@ -296,8 +301,7 @@ public final class LocalNetworkResolver {
     let confirmer = routeConfirmer
     let workingRoute = statuses[key]?.isConnectedLocally == true ? resolved[key] : nil
     probes[key] = Task {
-      // A route that still answers is kept as is: no resolution runs and
-      // nothing is published until the route is proven dead.
+      // A route that still answers is kept: nothing resolves or publishes until it is proven dead.
       let routeStillAnswers: Bool
       if let workingRoute {
         routeStillAnswers = await confirmer(workingRoute, session)
@@ -314,6 +318,21 @@ public final class LocalNetworkResolver {
     }
   }
 
+  private func registeredIdentities() -> Set<String> {
+    Set(registeredServers().map(Self.normalizedIdentity))
+  }
+
+  private static func normalizedIdentity(_ url: URL) -> String {
+    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      return url.absoluteString.lowercased()
+    }
+    let path = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
+    let port = components.port.map { ":\($0)" } ?? ""
+    let scheme = components.scheme?.lowercased() ?? ""
+    let host = components.host?.lowercased() ?? ""
+    return "\(scheme)://\(host)\(port)\(path)"
+  }
+
   private func isNewestProbe(_ key: String, _ generation: Int) -> Bool {
     probeStartedAt[key] == generation && generation > lastPathChange
   }
@@ -325,8 +344,7 @@ public final class LocalNetworkResolver {
     if statuses[key] != result.status { statuses[key] = result.status }
   }
 
-  /// Waits at most `limit` for the newest probe of `key`. Giving up leaves the
-  /// cached route and status untouched; the probe keeps running.
+  /// Giving up after `limit` leaves the cached route and status untouched.
   private func awaitNewestProbe(_ key: String, upTo limit: Duration) async {
     guard probes[key] != nil || (reprobeDue && knownServers[key] != nil) else { return }
     let sleep = sleeper
@@ -381,14 +399,18 @@ public final class LocalNetworkResolver {
     }
   }
 
-  // Probing the LAN while the app is inactive can raise the system's Local
-  // Network prompt with nothing on screen, so a change seen then only marks
-  // a re-probe as due.
+  // Probing while inactive can raise the Local Network prompt with nothing on screen, so a change then only marks a re-probe due.
   private func reprobeIfDue() {
     guard reprobeDue, isAppActive else { return }
     reprobeDue = false
-    let registered = Set(registeredServers().map(\.absoluteString))
-    for key in knownServers.keys where !registered.contains(key) {
+    let registered = registeredIdentities()
+    let removed = knownServers.keys.filter {
+      let identity = Self.normalizedIdentity(knownServers[$0]!.identity)
+      return everRegistered.contains(identity) && !registered.contains(identity)
+    }
+    everRegistered.formUnion(registered)
+    everRegistered.subtract(removed.map { Self.normalizedIdentity(knownServers[$0]!.identity) })
+    for key in removed {
       knownServers[key] = nil
       resolved[key] = nil
       statuses[key] = nil

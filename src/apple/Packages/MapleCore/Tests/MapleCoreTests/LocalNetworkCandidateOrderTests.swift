@@ -99,4 +99,32 @@ final class LocalNetworkCandidateOrderTests: XCTestCase {
       URL(string: "http://192.168.1.99:3000")!, session: session(serving: bothAdvertised))
     XCTAssertFalse(moved)
   }
+
+  func test_aRouteStillAnswersWhenTheReportDiffersOnlyInCaseOfSchemeAndHost() async {
+    let report =
+      #"{"available":true,"https":{"ip":"Local.EXAMPLE.com","port":3443,"scheme":"HTTPS"}}"#
+    let route = URL(string: "https://local.example.com:3443")!
+
+    let answers = await LocalNetworkResolving.confirmRoute(route, session: session(serving: report))
+
+    XCTAssertTrue(answers)
+  }
+
+  func test_aRouteStillAnswersWhenOnlyOneSideBracketsAnIPv6Host() async {
+    let report = #"{"available":true,"ip":"[fd00::5]","port":3000,"scheme":"http"}"#
+    let route = URL(string: "http://[fd00::5]:3000")!
+
+    let answers = await LocalNetworkResolving.confirmRoute(route, session: session(serving: report))
+
+    XCTAssertTrue(answers)
+  }
+
+  func test_aRouteNoLongerAdvertisedDoesNotAnswer() async {
+    let route = URL(string: "https://other.example.com:3443")!
+
+    let answers = await LocalNetworkResolving.confirmRoute(
+      route, session: session(serving: bothAdvertised))
+
+    XCTAssertFalse(answers)
+  }
 }

@@ -6,11 +6,13 @@ private actor ConfirmLog {
   private(set) var routes: [URL] = []
   private var answers: [URL: Bool] = [:]
   private var hanging: Set<URL> = []
+  private var abandoned = 0
 
   func confirm(_ route: URL) async -> Bool {
     routes.append(route)
     if hanging.contains(route) {
       while !Task.isCancelled { await Task.yield() }
+      abandoned += 1
       return false
     }
     return answers[route] ?? false
@@ -24,6 +26,10 @@ private actor ConfirmLog {
 
   func waitForConfirmations(_ count: Int) async -> Bool {
     await pollUntil { self.routes.count >= count }
+  }
+
+  func waitForHangingConfirmationToEnd() async -> Bool {
+    await pollUntil { self.abandoned > 0 }
   }
 }
 
@@ -67,8 +73,19 @@ final class LocalNetworkKeepRouteTests: XCTestCase {
     await rig.confirms.set(route, answering: true)
   }
 
-  private func yieldABunch() async {
-    for _ in 0..<50 { await Task.yield() }
+  private func waitForTheProbeToFinish(_ rig: Rig) async {
+    let finished = LockedValue(false)
+    let waiting = Task {
+      _ = await rig.resolver.settledEffectiveURL(for: identity, waitingAtMost: .seconds(30))
+      finished.value = true
+    }
+    let done = await pollUntil { finished.value }
+    XCTAssertTrue(done)
+    if !done {
+      await rig.status.releaseEverything(with: lan)
+      await rig.sleeps.release(.seconds(30))
+    }
+    await waiting.value
   }
 
   private func recheck(_ rig: Rig) async {
@@ -100,7 +117,7 @@ final class LocalNetworkKeepRouteTests: XCTestCase {
     await rig.sleeps.release(debounce)
     let confirmed = await rig.confirms.waitForConfirmations(1)
     XCTAssertTrue(confirmed)
-    await yieldABunch()
+    await waitForTheProbeToFinish(rig)
 
     let routes = await rig.confirms.routes
     let resolutions = await rig.status.calls
@@ -155,7 +172,6 @@ final class LocalNetworkKeepRouteTests: XCTestCase {
     let recheck = Task { await rig.resolver.resolve(identity: identity) }
     let resolving = await rig.status.waitForCalls(2)
     XCTAssertTrue(resolving)
-    await yieldABunch()
     XCTAssertEqual(rig.resolver.status(for: identity), connected)
     XCTAssertEqual(rig.resolver.effectiveURL(for: identity), lan)
 
@@ -213,7 +229,8 @@ final class LocalNetworkKeepRouteTests: XCTestCase {
     rig.paths.yield()
     let debounced = await rig.sleeps.waitForStarted(1, of: debounce)
     XCTAssertTrue(debounced)
-    await yieldABunch()
+    let abandoned = await rig.confirms.waitForHangingConfirmationToEnd()
+    XCTAssertTrue(abandoned)
     let resolutionsAfterCancel = await rig.status.calls
     XCTAssertEqual(resolutionsAfterCancel, 1, "a cancelled confirmation does not run a resolution")
 
