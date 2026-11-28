@@ -41,11 +41,15 @@ namespace Maple.WinUI.Services.Cloud
         /// yet on the fly; the preview route answers 202 until the asset is
         /// catalogued (the folder listing enqueues a discover scan for
         /// every un-indexed file it returns, so that window is short) —
-        /// retried once after the advertised delay; null on failure.</summary>
+        /// retried once after the advertised delay; null on failure. A
+        /// <paramref name="version"/> is the listing's thumbnail token: it
+        /// rides in the query string only, the cached copy that already
+        /// holds that token is returned without a request, and any other
+        /// token fetches fresh bytes that replace it.</summary>
         public Task<string?> FetchImageAsync(
-            string kind, string address, CancellationToken ct) =>
+            string kind, string address, CancellationToken ct, string? version = null) =>
             FetchCachedImageAsync(
-                kind, $"{kind}|{address}", $"api/{kind}/{EncodeAddress(address)}", ct);
+                kind, $"{kind}|{address}", $"api/{kind}/{EncodeAddress(address)}", version, ct);
 
         /// <summary>slug:relPath → enc(slug)/enc(seg1)/enc(seg2)… — the server
         /// decodes each segment individually.</summary>

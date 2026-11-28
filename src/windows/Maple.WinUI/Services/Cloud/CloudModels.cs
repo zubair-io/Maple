@@ -66,6 +66,7 @@ namespace Maple.WinUI.Services.Cloud
         /// file. Nothing in the browse path requires it.</summary>
         [JsonPropertyName("id")] public string? Id { get; set; }
         [JsonPropertyName("exif")] public CloudImageExif? Exif { get; set; }
+        [JsonPropertyName("thumbVersion")] public string? ThumbVersion { get; set; }
     }
 
     /// <summary>The `exif` subdocument on a unified folder image entry. Field

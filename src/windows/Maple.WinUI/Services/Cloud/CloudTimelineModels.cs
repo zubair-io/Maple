@@ -58,6 +58,7 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("rating")] public int Rating { get; set; }
         [JsonPropertyName("flag")] public int Flag { get; set; }
         [JsonPropertyName("color_label")] public string? ColorLabel { get; set; }
+        [JsonPropertyName("thumb_version")] public string? ThumbVersion { get; set; }
     }
 
     public sealed class CloudTimelineCamera

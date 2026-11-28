@@ -14,6 +14,7 @@ internal static class CloudPhotoMapper
         {
             IsCloud = true,
             CloudAddress = string.IsNullOrEmpty(image.Address) ? null : image.Address,
+            ThumbVersion = string.IsNullOrEmpty(image.ThumbVersion) ? null : image.ThumbVersion,
             FilePath = image.Path,
             FileName = image.Name,
             Format = image.Ext.Length > 0 ? image.Ext.ToUpperInvariant() : "RAW",
@@ -50,6 +51,7 @@ internal static class CloudPhotoMapper
             Size = image.Size,
             Ext = Path.GetExtension(image.Filename).TrimStart('.'),
             Mtime = DateTimeOffset.FromUnixTimeMilliseconds((long)image.Mtime).ToString("O"),
+            ThumbVersion = image.ThumbVersion,
             Exif = new CloudImageExif
             {
                 CapturedAt = image.CapturedAt, CameraMake = image.Camera?.Make,

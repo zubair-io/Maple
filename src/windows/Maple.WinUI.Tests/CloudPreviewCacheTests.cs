@@ -33,7 +33,7 @@ public sealed class CloudPreviewCacheTests : IDisposable
         using var reopened = Client(nextHandler);
         var second = await reopened.FetchImageAsync(kind, "lib:a.dng", default);
         Assert.NotEqual(first, second);
-        Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(first));
+        Assert.False(File.Exists(first));
         Assert.Equal(new byte[] { 2 }, await File.ReadAllBytesAsync(second!));
         var stamp = File.GetLastWriteTimeUtc(second!);
         Assert.Equal(second, await reopened.FetchImageAsync(kind, "lib:a.dng", default));

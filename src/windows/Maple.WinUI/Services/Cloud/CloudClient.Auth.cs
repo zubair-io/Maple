@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,7 +22,7 @@ namespace Maple.WinUI.Services.Cloud
             string refreshToken, CancellationToken ct)
         {
             RefreshToken = refreshToken;
-            return await RefreshAccessTokenAsync(ct);
+            return await RefreshAfterRestoreAsync(ct);
         }
 
         /// <summary>Dev-only fallback (server started with MAPLE_DEV_AUTH=1);
@@ -37,6 +38,41 @@ namespace Maple.WinUI.Services.Cloud
                 return (false, "dev-login returned no access token.");
             _accessToken = token!.AccessToken;
             return (true, "Signed in (dev).");
+        }
+
+        private static readonly TimeSpan RefreshFailureWindow = TimeSpan.FromSeconds(5);
+
+        private (string? Rejected, RefreshOutcome Outcome, long At)? _failedRefresh;
+
+        // The server rate-limits and rotates refresh tokens, so concurrent 401s
+        // share one refresh: whoever waits behind it finds a new token, or the
+        // outcome of the attempt that just failed, and posts nothing of its own.
+        private async Task<RefreshOutcome> RefreshRejectedAccessTokenAsync(string? rejectedToken, CancellationToken ct)
+        {
+            await _refreshGate.WaitAsync(ct);
+            try
+            {
+                if (_accessToken != rejectedToken) return RefreshOutcome.Ok;
+                if (_failedRefresh is { } failed && failed.Rejected == rejectedToken
+                    && Stopwatch.GetElapsedTime(failed.At) < RefreshFailureWindow)
+                    return failed.Outcome;
+                return await RefreshAndRecordAsync(rejectedToken, ct);
+            }
+            finally { _refreshGate.Release(); }
+        }
+
+        private async Task<RefreshOutcome> RefreshAfterRestoreAsync(CancellationToken ct)
+        {
+            await _refreshGate.WaitAsync(ct);
+            try { return await RefreshAndRecordAsync(_accessToken, ct); }
+            finally { _refreshGate.Release(); }
+        }
+
+        private async Task<RefreshOutcome> RefreshAndRecordAsync(string? rejectedToken, CancellationToken ct)
+        {
+            var outcome = await RefreshAccessTokenAsync(ct);
+            _failedRefresh = outcome == RefreshOutcome.Ok ? null : (rejectedToken, outcome, Stopwatch.GetTimestamp());
+            return outcome;
         }
 
         private async Task<RefreshOutcome> RefreshAccessTokenAsync(CancellationToken ct)
