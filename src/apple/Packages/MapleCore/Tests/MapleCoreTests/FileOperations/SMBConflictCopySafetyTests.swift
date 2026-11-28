@@ -204,6 +204,74 @@ final class SMBConflictCopySafetyTests: XCTestCase {
     XCTAssertNil(files["/dest/A.xmp"])
   }
 
+  // MARK: - Renaming a photo to the name of its own conflict copy
+
+  private func aliasShelf(copyBytes: String) async -> FakeSMBTransport {
+    let transport = FakeSMBTransport()
+    await transport.seed("pixels", at: "/src/photo.CR3")
+    await transport.seed("<canonical/>", at: "/src/photo.xmp")
+    await transport.seed(copyBytes, at: "/src/\(mac)")
+    return transport
+  }
+
+  func testAnIdenticalCopyIsNotJoinedAsTheRenamedPhotosSidecarUnderFail() async throws {
+    let transport = await aliasShelf(copyBytes: "<canonical/>")
+    let before = await transport.allFiles()
+
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/src/photo.CR3", to: "/src", newBasename: "photo (conflict from Mac).CR3", mode: .move,
+        collision: .fail, transport: transport)
+      XCTFail("the target sidecar name is the photo's own conflict copy")
+    } catch FileOperationError.destinationExists {
+    }
+
+    let after = await transport.allFiles()
+    XCTAssertEqual(after, before)
+  }
+
+  func testAnIdenticalCopyMovesTheRenamedPhotoToAFreeStemUnderAutoSuffix() async throws {
+    let transport = await aliasShelf(copyBytes: "<canonical/>")
+
+    let outcome = try await SMBFileOperations.relocate(
+      "/src/photo.CR3", to: "/src", newBasename: "photo (conflict from Mac).CR3", mode: .move,
+      collision: .autoSuffix, transport: transport)
+
+    XCTAssertEqual(
+      (outcome.primaryPath as NSString).lastPathComponent, "photo (conflict from Mac).1.CR3")
+    let files = await transport.allFiles()
+    XCTAssertEqual(files["/src/photo (conflict from Mac).1.xmp"], "<canonical/>")
+    XCTAssertEqual(files["/src/photo (conflict from Mac).1.CR3"], "pixels")
+  }
+
+  func testADifferingCopyCollidesAndNothingChanges() async throws {
+    let transport = await aliasShelf(copyBytes: "<other/>")
+    let before = await transport.allFiles()
+
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/src/photo.CR3", to: "/src", newBasename: "photo (conflict from Mac).CR3", mode: .move,
+        collision: .fail, transport: transport)
+      XCTFail("the target sidecar name holds different bytes")
+    } catch FileOperationError.destinationExists {
+    }
+
+    let after = await transport.allFiles()
+    XCTAssertEqual(after, before)
+  }
+
+  func testADifferingCopyKeepsEveryByteUnderAutoSuffix() async throws {
+    let transport = await aliasShelf(copyBytes: "<other/>")
+
+    _ = try await SMBFileOperations.relocate(
+      "/src/photo.CR3", to: "/src", newBasename: "photo (conflict from Mac).CR3", mode: .move,
+      collision: .autoSuffix, transport: transport)
+
+    let files = await transport.allFiles()
+    XCTAssertEqual(Set(files.values), ["pixels", "<canonical/>", "<other/>"])
+    XCTAssertEqual(files["/src/photo (conflict from Mac).1.xmp"], "<canonical/>")
+  }
+
   // MARK: - Canonically equivalent names
 
   func testADecomposedCopyFollowsAComposedPhoto() async throws {

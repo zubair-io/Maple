@@ -96,7 +96,15 @@ struct SMBFolderScan: Sendable {
           move.source, at: occupant, transport: transport)
       }
     }
-    return heldByOther
+    let key = { SidecarOwnership.comparisonKey($0, foldsCase: true) }
+    let sources = moves.map { key($0.source) }
+    let canonicalTarget = key(SMBFileOperations.sidecarPath(for: targetPath))
+    let aliasesOwnCopy =
+      sources.contains(canonicalTarget)
+      || moves.enumerated().contains { index, move in
+        sources.indices.contains { $0 != index && sources[$0] == key(move.destination) }
+      }
+    return heldByOther || aliasesOwnCopy
       || moves.contains {
         ConflictCopyPairing.isSidecarOfAnotherPhoto(
           ($0.destination as NSString).lastPathComponent, among: destinationNames,
@@ -180,7 +188,12 @@ extension SMBFileOperations {
 
   /// A save that landed on a source copy since planning is not in the destination, so it stays.
   static func removeCarriedConflictCopies(_ plan: RelocatePlan, transport: SMBFileTransport) async {
+    let key = { SidecarOwnership.comparisonKey($0, foldsCase: true) }
+    let published = Set(
+      ([plan.finalPrimaryPath] + [plan.finalSidecarPath].compactMap { $0 }
+        + plan.finalVariantPaths).map(key))
     for (source, destination) in zip(plan.sourceVariantPaths, plan.finalVariantPaths) {
+      if published.contains(key(source)) { continue }
       guard
         await SidecarOwnership.smbSidecarAlreadyCarried(
           source, at: destination, transport: transport)
