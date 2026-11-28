@@ -10,7 +10,7 @@ import { of } from 'rxjs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { TimelineViewComponent } from './timeline-view.component';
-import { MAX_CONCURRENT_THUMB_LOADS } from './timeline-thumb-loader';
+import { MAX_CONCURRENT_THUMB_LOADS } from '../../state/thumb-load-bound';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
 import { SearchService, SearchParams } from '../../api/search.service';

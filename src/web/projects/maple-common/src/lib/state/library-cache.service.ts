@@ -24,7 +24,7 @@ import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
 import { HostedThumbCache } from './library-cache.hosted-thumb-cache';
 import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
-import { ThumbLoadQueue, QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
+import { QUEUE_CLEARED_MESSAGE, thumbQueueFor } from './library-cache.thumb-queue';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -139,10 +139,10 @@ export class LibraryCache {
   private readonly thumbLoadingTokens = new Map<AssetId, symbol>();
   private readonly thumbFails = new ThumbFailMemory();
 
-  /** Bounded (4-wide) FIFO of pending thumbnail loads — see
-   * `library-cache.thumb-queue.ts` for why the bound exists and why unmounted
-   * tiles must drop their queued work. */
-  private readonly thumbQueue = new ThumbLoadQueue();
+  /** Bounded FIFO of pending thumbnail loads — see `library-cache.thumb-queue.ts`
+   * for why the bound exists and why unmounted tiles must drop their queued
+   * work. */
+  private readonly thumbQueue = thumbQueueFor(this.store.backend);
 
   /**
    * Subscribe a tile to thumbnail-URL changes for `id`. Invokes `cb` immediately

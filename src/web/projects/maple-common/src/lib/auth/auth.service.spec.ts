@@ -27,6 +27,14 @@ describe('AuthService.refresh', () => {
     expect(auth.bearer).toBe('AT1');
   });
 
+  it('goes past the service worker, so the page can read the protocol it used', async () => {
+    const p = auth.refresh();
+    const req = ctrl.expectOne('/api/auth/refresh');
+    expect(req.request.headers.get('ngsw-bypass')).toBe('true');
+    req.flush({ access_token: 'AT1' });
+    expect(await p).toBe('refreshed');
+  });
+
   it('treats a 401 as a genuine rejection and clears the session', async () => {
     auth.user.set(signedInUser);
     const p = auth.refresh();

@@ -6,7 +6,8 @@
 // left every other /api/* call queued behind them.
 
 import { describe, it, expect, vi } from 'vitest';
-import { MAX_CONCURRENT_THUMB_LOADS, TimelineThumbLoader } from './timeline-thumb-loader';
+import { TimelineThumbLoader } from './timeline-thumb-loader';
+import { MAX_CONCURRENT_THUMB_LOADS, MULTIPLEXED_THUMB_LOADS } from '../../state/thumb-load-bound';
 
 /** A fetch stub whose requests only settle when the test says so, so the
  * in-flight count is observable. */
@@ -51,6 +52,38 @@ describe('TimelineThumbLoader', () => {
 
     expect(f.peak()).toBe(MAX_CONCURRENT_THUMB_LOADS);
     expect(f.fetchThumb).toHaveBeenCalledTimes(MAX_CONCURRENT_THUMB_LOADS);
+  });
+
+  it('runs as many at once as the bound it is given', async () => {
+    const f = deferredFetcher();
+    const loader = new TimelineThumbLoader(
+      f.fetchThumb,
+      () => {},
+      () => MULTIPLEXED_THUMB_LOADS,
+    );
+
+    for (let i = 0; i < 200; i++) loader.load(`/Lib/p${i}.dng`, '2026-5');
+    await Promise.resolve();
+
+    expect(f.peak()).toBe(MULTIPLEXED_THUMB_LOADS);
+  });
+
+  it('takes up a raised bound as soon as a request finishes', async () => {
+    const f = deferredFetcher();
+    const bound = { value: MAX_CONCURRENT_THUMB_LOADS };
+    const loader = new TimelineThumbLoader(
+      f.fetchThumb,
+      () => {},
+      () => bound.value,
+    );
+
+    for (let i = 0; i < 200; i++) loader.load(`/Lib/p${i}.dng`, '2026-5');
+    await Promise.resolve();
+    bound.value = MULTIPLEXED_THUMB_LOADS;
+    f.pending.shift()!.resolve('blob:first');
+    await vi.waitFor(() => expect(f.pending.length).toBeGreaterThan(3));
+
+    expect(f.pending).toHaveLength(MULTIPLEXED_THUMB_LOADS);
   });
 
   it('drains the whole queue as requests settle', async () => {

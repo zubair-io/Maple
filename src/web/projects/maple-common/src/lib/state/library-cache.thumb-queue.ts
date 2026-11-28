@@ -4,10 +4,9 @@
 // hard budget) so the concurrency behaviour is unit-testable without TestBed,
 // the same way `timeline-thumb-loader.ts` is for TimelineView.
 //
-// The bound is 4 because the Self Hosted API is served by `Bun.serve`, which is
-// HTTP/1.1-only: the browser caps the origin at 6 connections, so an unbounded
-// grid would head-of-line block every other `/api/*` call behind a wall of
-// thumbnails (#2219). Four leaves two connections for everything else.
+// The bound comes from the caller (`thumb-load-bound.ts`): four over HTTP/1.1,
+// where an unbounded grid would head-of-line block every other `/api/*` call
+// behind a wall of thumbnails (#2219), sixteen over HTTP/2 and HTTP/3.
 //
 // `cancel` is what keeps scrolling responsive. The browse grid virtualizes, so
 // a tile that scrolls out of view is destroyed — but its queued request used to
@@ -16,8 +15,8 @@
 // waiting behind hundreds of requests for rows already passed. Dropping
 // not-yet-started work on unmount mirrors `TimelineThumbLoader.dropMonth`.
 
-/** Concurrent thumb requests allowed against the origin at any moment. */
-export const MAX_CONCURRENT_THUMB_LOADS = 4;
+import type { LibraryBackendKind } from '../api/library-backend.token';
+import { MAX_CONCURRENT_THUMB_LOADS, thumbLoadBound } from './thumb-load-bound';
 
 /**
  * Rejection message for work dropped by {@link ThumbLoadQueue.clear}. Expected
@@ -38,6 +37,9 @@ interface QueuedLoad {
 export class ThumbLoadQueue {
   private readonly queue: QueuedLoad[] = [];
   private inFlight = 0;
+
+  /** @param bound How many loads may run at once; read each time a slot frees. */
+  constructor(private readonly bound: () => number = () => MAX_CONCURRENT_THUMB_LOADS) {}
 
   /** Not-yet-started entries. Test hook. */
   get depth(): number {
@@ -89,7 +91,8 @@ export class ThumbLoadQueue {
   }
 
   private _pump(): void {
-    while (this.inFlight < MAX_CONCURRENT_THUMB_LOADS) {
+    const bound = this.bound();
+    while (this.inFlight < bound) {
       const next = this.queue.shift();
       if (!next) return;
       this.inFlight++;
@@ -102,4 +105,13 @@ export class ThumbLoadQueue {
         });
     }
   }
+}
+
+/**
+ * The queue for `backend`'s thumbnails. Self Hosted loads are requests to the
+ * server and follow its protocol's bound; Hosted loads are local decodes and
+ * keep the HTTP/1.1 bound whatever protocol served the page.
+ */
+export function thumbQueueFor(backend: LibraryBackendKind): ThumbLoadQueue {
+  return new ThumbLoadQueue(backend === 'self-hosted' ? thumbLoadBound() : undefined);
 }
