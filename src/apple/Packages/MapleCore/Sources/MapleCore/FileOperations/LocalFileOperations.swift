@@ -272,17 +272,7 @@ public enum LocalFileOperations {
         )
       }
     }
-    if !plan.retainsSourceSidecar {
-      for sourceVariantPath in plan.sourceVariantPaths {
-        do {
-          try fm.removeItem(atPath: sourceVariantPath)
-        } catch {
-          fileOpsLog.error(
-            "finalizeRelocate: source workflow branch unlink failed after a verified copy (\(sourceVariantPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
-          )
-        }
-      }
-    }
+    if !plan.retainsSourceSidecar { LocalPairedEditCopies.removeCarried(plan) }
     await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
     await refreshLibraryIndexAfterMove(plan)
     return outcome

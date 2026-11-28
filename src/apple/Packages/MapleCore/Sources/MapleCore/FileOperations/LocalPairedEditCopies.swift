@@ -1,4 +1,8 @@
 import Foundation
+import OSLog
+
+private let pairedCopyLog = Logger(
+  subsystem: "app.justmaple.aperture", category: "LocalPairedEditCopies")
 
 /// The edit files besides the canonical sidecar that one local image or video owns: its UUID
 /// workflow sidecars and its conflict copies (#6134). A foreign `.v2` sibling is deliberately
@@ -44,6 +48,30 @@ enum LocalPairedEditCopies {
           try target(for: copy, from: source, to: destination).lastPathComponent,
           among: names, besides: destination.lastPathComponent, foldsCase: foldsCase)
       }
+  }
+
+  /// Removes the source edit copies a move has published. A conflict copy saved after it was
+  /// staged (a sync tool's late write) is not what the destination holds, so it stays.
+  static func removeCarried(_ plan: RelocatePlan) {
+    let primaryName = (plan.sourcePrimaryPath as NSString).lastPathComponent
+    for (source, destination) in zip(plan.sourceVariantPaths, plan.finalVariantPaths) {
+      let foldsCase = SidecarOwnership.localVolumeFoldsCase(
+        URL(fileURLWithPath: source).deletingLastPathComponent())
+      let isConflictCopy = ConflictCopyPairing.isConflictCopy(
+        (source as NSString).lastPathComponent,
+        ofStem: SidecarOwnership.stem(of: primaryName, foldsCase: foldsCase), foldsCase: foldsCase)
+      if isConflictCopy, !SidecarOwnership.localSidecarAlreadyCarried(source, at: destination) {
+        pairedCopyLog.error("finalizeRelocate: changed conflict copy kept at source")
+        continue
+      }
+      do {
+        try FileManager.default.removeItem(atPath: source)
+      } catch {
+        pairedCopyLog.error(
+          "finalizeRelocate: source edit copy unlink failed after a verified copy (\(source, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
   }
 
   private static func paired(
