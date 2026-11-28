@@ -200,6 +200,7 @@ LocalFileOperationsFolderTests
 LocalFileOperationsRelocateTests
 LocalWorkflowVariantRelocateTests
 LocalFileOperationsTrashTests
+LocalConflictCopyTests # #6134: conflict copies travel with their photo on move and trash
 
 # KTLO qualification batch 4 (#3657): map geometry and offscreen bitmaps,
 # stubbed HTTP, generated masks and temporary XMP/cache files.
@@ -400,6 +401,8 @@ RemoteCatalogXMPCreateTests
 TrashMetadataListingTests
 TrashOrphanedSidecarTests
 SMBFileOperationsFolderTests
+SMBConflictCopyTests # #6134: in-memory share transport
+SMBConflictCopySafetyTests # #6134: listing cost, unicode names, fail-closed folders
 
 # Ownership facet choices and stale scope responses (#4016).
 AssetOwnerFilterModelTests
