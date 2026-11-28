@@ -38,6 +38,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[derive(Clone, Copy)]
 pub struct CancelToken<'a> {
     flag: Option<&'a AtomicBool>,
+    #[cfg(test)]
+    probe: Option<&'a probe::PollProbe>,
 }
 
 impl<'a> CancelToken<'a> {
@@ -49,7 +51,11 @@ impl<'a> CancelToken<'a> {
     /// [`is_cancelled`]: CancelToken::is_cancelled
     #[inline]
     pub const fn never() -> Self {
-        CancelToken { flag: None }
+        CancelToken {
+            flag: None,
+            #[cfg(test)]
+            probe: None,
+        }
     }
 
     /// Borrow a host-owned `AtomicBool` as a cancellation signal. The host
@@ -57,7 +63,11 @@ impl<'a> CancelToken<'a> {
     /// the develop chain observes it with a relaxed load and unwinds.
     #[inline]
     pub fn new(flag: &'a AtomicBool) -> Self {
-        CancelToken { flag: Some(flag) }
+        CancelToken {
+            flag: Some(flag),
+            #[cfg(test)]
+            probe: None,
+        }
     }
 
     /// `true` once the host has requested cancellation. A never-cancel
@@ -69,7 +79,12 @@ impl<'a> CancelToken<'a> {
     /// observation on one loop iteration just defers the bail to the next
     /// check, which is harmless.
     #[inline]
+    #[cfg_attr(test, track_caller)]
     pub fn is_cancelled(&self) -> bool {
+        #[cfg(test)]
+        if let Some(probe) = self.probe {
+            return probe.poll(std::panic::Location::caller());
+        }
         match self.flag {
             Some(f) => f.load(Ordering::Relaxed),
             None => false,
@@ -79,6 +94,7 @@ impl<'a> CancelToken<'a> {
     /// `Err(Cancelled)` once the host has requested cancellation: the
     /// checkpoint between stages whose kernels skip work under a cancel.
     #[inline]
+    #[cfg_attr(test, track_caller)]
     pub fn check(&self) -> crate::Result<()> {
         if self.is_cancelled() {
             return Err(crate::Error::Cancelled);
@@ -91,6 +107,92 @@ impl Default for CancelToken<'_> {
     #[inline]
     fn default() -> Self {
         Self::never()
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod probe {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::panic::Location;
+    use std::sync::Mutex;
+
+    use super::CancelToken;
+
+    type Site = (&'static str, u32, u32);
+
+    /// A deterministic stand-in for a host that cancels: every poll of its
+    /// token counts as one unit of work, and the poll with index `trip_at`
+    /// and every later one reports a cancel. The decision depends on the
+    /// poll's index alone, never on timing, so a run is reproducible under
+    /// any machine load; run it on a one-thread pool for a fixed poll order.
+    pub(crate) struct PollProbe {
+        trip_at: usize,
+        sites: Mutex<Vec<Site>>,
+    }
+
+    impl PollProbe {
+        pub(crate) fn trip_at(trip_at: usize) -> Self {
+            Self {
+                trip_at,
+                sites: Mutex::new(Vec::new()),
+            }
+        }
+
+        pub(crate) fn never_trips() -> Self {
+            Self::trip_at(usize::MAX)
+        }
+
+        pub(crate) fn token(&self) -> CancelToken<'_> {
+            CancelToken {
+                flag: None,
+                probe: Some(self),
+            }
+        }
+
+        pub(super) fn poll(&self, site: &'static Location<'static>) -> bool {
+            let mut sites = self.sites.lock().unwrap();
+            let index = sites.len();
+            sites.push((site.file(), site.line(), site.column()));
+            index >= self.trip_at
+        }
+
+        pub(crate) fn polls(&self) -> usize {
+            self.sites.lock().unwrap().len()
+        }
+
+        /// The index of the first poll from each call site that polls at or
+        /// after index `from`: one cancel point per distinct checkpoint.
+        pub(crate) fn first_polls_of_distinct_sites(&self, from: usize) -> Vec<usize> {
+            let sites = self.sites.lock().unwrap();
+            (from..sites.len())
+                .filter(|&index| !sites[from..index].contains(&sites[index]))
+                .collect()
+        }
+
+        /// How often each call site other than the one that saw the cancel
+        /// first was polled once the cancel was in. A checkpoint that
+        /// unwinds the run polls once; a pass that started after the cancel
+        /// polls once per row.
+        pub(crate) fn later_polls_by_other_site(&self) -> BTreeMap<String, usize> {
+            let sites = self.sites.lock().unwrap();
+            let Some(first) = sites.get(self.trip_at) else {
+                return BTreeMap::new();
+            };
+            let others: Vec<_> = sites[self.trip_at..]
+                .iter()
+                .filter(|site| *site != first)
+                .collect();
+            others
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(|site| {
+                    let polls = others.iter().filter(|other| **other == site).count();
+                    (format!("{}:{}:{}", site.0, site.1, site.2), polls)
+                })
+                .collect()
+        }
     }
 }
 

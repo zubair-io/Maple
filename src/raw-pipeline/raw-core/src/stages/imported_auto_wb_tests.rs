@@ -1,5 +1,5 @@
 use super::*;
-use crate::{pipeline, xmp, xmp::AutoExposureMode, Error};
+use crate::{cancel::probe::PollProbe, pipeline, xmp, xmp::AutoExposureMode, Error};
 
 fn raw() -> RawImage {
     crate::decode::decode(
@@ -266,11 +266,11 @@ fn resolved_session_renders_equal_the_numerically_authored_pair() {
     assert_eq!(tile(&imported), tile(&explicit));
 }
 
-/// A 24 MP mosaic on the fixture's calibration, so the full-resolution
-/// stages (linearize, demosaic, downsample) dominate the estimate.
+/// A mosaic on the fixture's calibration whose long edge exceeds the probe's,
+/// so the full-resolution stages (linearize, demosaic, downsample) all run.
 fn large_mosaic() -> RawImage {
     let raw = raw();
-    let (width, height) = (6000, 4000);
+    let (width, height) = (1792, 1280);
     let (black, span) = (raw.black_level[0], raw.white_level - raw.black_level[0]);
     RawImage {
         width,
@@ -286,70 +286,62 @@ fn large_mosaic() -> RawImage {
     }
 }
 
-/// Cancel `estimate` `after` into its run; returns its result and how long it
-/// kept running once the flag was set.
-fn cancel_after(
-    raw: &RawImage,
-    after: std::time::Duration,
-) -> (Result<(f32, f32)>, std::time::Duration) {
-    let flag = std::sync::atomic::AtomicBool::new(false);
-    std::thread::scope(|scope| {
-        let setter = scope.spawn(|| {
-            std::thread::sleep(after);
-            flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            std::time::Instant::now()
-        });
-        let result = estimate(raw, CancelToken::new(&flag));
-        let returned = std::time::Instant::now();
-        let set = setter.join().unwrap();
-        (result, returned.saturating_duration_since(set))
-    })
+fn on_one_thread<R: Send>(run: impl FnOnce() -> R + Send) -> R {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap()
+        .install(run)
 }
 
 #[test]
-fn a_cancelled_estimate_returns_promptly_and_a_later_ask_gets_the_same_pair() {
-    // On the global pool a cancelled pass waits behind other tests' queued
-    // jobs, which times the test runner rather than the cancel.
-    rayon::ThreadPoolBuilder::new()
-        .build()
-        .unwrap()
-        .install(cancelled_estimate_returns_promptly);
+fn a_cancelled_estimate_starts_no_new_pass_after_the_cancel_and_a_later_ask_gets_the_same_pair() {
+    on_one_thread(cancelled_estimate_starts_no_new_pass);
 }
 
-fn cancelled_estimate_returns_promptly() {
+fn cancelled_estimate_starts_no_new_pass() {
     let raw = large_mosaic();
-    let started = std::time::Instant::now();
-    let pair = estimate(&raw, CancelToken::never()).unwrap();
-    let full = started.elapsed();
-    let latencies: Vec<_> = (0..7)
-        .filter_map(|eighth| match cancel_after(&raw, full * eighth / 8) {
-            (Err(Error::Cancelled), latency) => Some(latency),
-            (Err(error), _) => panic!("{error}"),
-            (Ok(_), _) => None,
-        })
-        .collect();
-    eprintln!("estimate {full:?}; cancelled runs returned after {latencies:?}");
+    let uncancelled = PollProbe::never_trips();
+    let pair = estimate(&raw, uncancelled.token()).unwrap();
+    let units = uncancelled.polls();
     assert!(
-        latencies.len() >= 4,
-        "only {} of 7 runs were cancelled",
-        latencies.len()
+        units >= raw.height as usize,
+        "the estimate polled {units} times, fewer than the {} rows of its first pass",
+        raw.height
     );
-    let slowest = latencies.iter().max().unwrap();
-    assert!(
-        *slowest * 4 < full,
-        "a cancelled run kept going {slowest:?} of {full:?}"
-    );
-    // Linearize is the estimate's first full-resolution pass: a cancel a
-    // quarter of the way into it returns within a few rows, not at its end.
-    let started = std::time::Instant::now();
-    crate::linearize::sensor_linearize(&raw);
-    let linearize = started.elapsed();
-    let (result, latency) = cancel_after(&raw, linearize / 4);
-    eprintln!("linearize {linearize:?}; cancelled inside it, returned after {latency:?}");
-    assert!(matches!(result, Err(Error::Cancelled)));
-    assert!(
-        latency * 4 < linearize,
-        "cancelled inside linearize, it still ran {latency:?} of {linearize:?}"
+    // The probe detects a pass that starts after the cancel from a call site
+    // that had not polled yet; it cannot see a stage given
+    // `CancelToken::never()`, a pass that polls once and ignores the answer,
+    // or a later pass polling from the cancelled pass's own call site.
+    // Linearize's row count below is the exact check.
+    let trips = [0, units / 4]
+        .into_iter()
+        .chain(uncancelled.first_polls_of_distinct_sites(units.saturating_sub(8)));
+    for trip_at in trips {
+        let probe = PollProbe::trip_at(trip_at);
+        let result = estimate(&raw, probe.token());
+        assert!(
+            matches!(result, Err(Error::Cancelled)),
+            "a cancel at poll {trip_at} of {units} gave {result:?}"
+        );
+        let started_late = probe.later_polls_by_other_site();
+        assert!(
+            started_late.values().all(|polls| *polls == 1),
+            "a cancel at poll {trip_at} of {units} let a pass start: {started_late:?}"
+        );
+    }
+    let rows = raw.height as usize;
+    let probe = PollProbe::trip_at(rows / 4);
+    let linearized = crate::linearize::sensor_linearize_cancellable(&raw, probe.token());
+    let rows_done = linearized
+        .pixels
+        .chunks(raw.width as usize)
+        .filter(|row| row.iter().any(|px| px.iter().any(|v| *v != 0.)))
+        .count();
+    assert_eq!(
+        rows_done,
+        rows / 4,
+        "linearize kept going after a cancel a quarter of the way in"
     );
     let unset = std::sync::atomic::AtomicBool::new(false);
     let retried = estimate(&raw, CancelToken::new(&unset)).unwrap();
