@@ -94,15 +94,23 @@ public enum ThumbnailDecoder {
     return decoded
   }
 
-  /// Decode `data` and make it the cached image for `key`, replacing a stale
-  /// bitmap of the same asset. Returns nil when the bytes do not decode.
-  public static func replaceImage(for data: Data, key: String) async -> CGImage? {
+  /// Decode `data` once and make it the cached image for every key, replacing
+  /// stale bitmaps of the same photo. Returns nil when the bytes do not decode.
+  static func replaceImage(for data: Data, keys: [String]) async -> CGImage? {
     guard !Task.isCancelled else { return nil }
     do { try await decodeSlots.acquire() } catch { return nil }
     let decoded = autoreleasepool { decodeSync(data) }
     await decodeSlots.release()
-    if let decoded { cache.setObject(decoded, forKey: key as NSString, cost: cost(of: decoded)) }
+    if let decoded {
+      for key in keys { cache.setObject(decoded, forKey: key as NSString, cost: cost(of: decoded)) }
+    }
     return decoded
+  }
+
+  /// What the cache now holds for `key`, else `image`: a decode that finished
+  /// after a refresh replaced the entry must not put the old pixels back.
+  public static func latest(_ image: CGImage, forKey key: String) -> CGImage {
+    cache.object(forKey: key as NSString) ?? image
   }
 
   /// Convenience for the common `Data?` call site (bytes may still be

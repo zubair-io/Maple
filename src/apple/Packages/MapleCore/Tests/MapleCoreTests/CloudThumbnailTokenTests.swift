@@ -122,22 +122,6 @@ final class CloudThumbnailTokenTests: XCTestCase {
     }
   }
 
-  private actor RefreshedBytes {
-    private var received: [Data] = []
-    private var waiting: CheckedContinuation<Data, Never>?
-
-    func record(_ bytes: Data) {
-      guard let waiting else { return received.append(bytes) }
-      self.waiting = nil
-      waiting.resume(returning: bytes)
-    }
-
-    func next() async -> Data {
-      if !received.isEmpty { return received.removeFirst() }
-      return await withCheckedContinuation { waiting = $0 }
-    }
-  }
-
   private func asset(key: String) -> AssetRef {
     AssetRef(
       displayName: "x.dng", hintExtension: "dng", stableID: key, bytesProvider: { Data() })
@@ -148,6 +132,8 @@ final class CloudThumbnailTokenTests: XCTestCase {
     let source = TokenSource()
     await source.setToken("t1")
     let loader = ThumbnailLoader()
+    let finished = FinishedStaleRefreshes()
+    await loader.setStaleRefreshDidFinish { finished.record($0) }
     let asset = asset(key: key)
 
     let first = await loader.load(for: asset, from: source)
@@ -155,9 +141,8 @@ final class CloudThumbnailTokenTests: XCTestCase {
     let callsWhileUnchanged = await source.thumbCalls
     await source.setToken("t2")
     await source.setBytes(Data("v2".utf8))
-    let refreshed = RefreshedBytes()
-    let third = await loader.load(for: asset, from: source) { await refreshed.record($0) }
-    let arrived = await refreshed.next()
+    let third = await loader.load(for: asset, from: source)
+    await waitUntil { finished.contains(key) }
     let fourth = await loader.load(for: asset, from: source)
     let callsAfterChange = await source.thumbCalls
 
@@ -165,7 +150,6 @@ final class CloudThumbnailTokenTests: XCTestCase {
     XCTAssertEqual(second, Data("v1".utf8))
     XCTAssertEqual(callsWhileUnchanged, 1)
     XCTAssertEqual(third, Data("v1".utf8), "the stale copy is shown while the refetch runs")
-    XCTAssertEqual(arrived, Data("v2".utf8))
     XCTAssertEqual(fourth, Data("v2".utf8))
     XCTAssertEqual(callsAfterChange, 2)
   }
@@ -209,6 +193,8 @@ final class CloudThumbnailTokenTests: XCTestCase {
       let source = TokenSource()
       await source.setToken("t1")
       let loader = ThumbnailLoader()
+      let finished = FinishedStaleRefreshes()
+      await loader.setStaleRefreshDidFinish { finished.record($0) }
       let asset = asset(key: key)
       _ = await loader.load(for: asset, from: source)
 
@@ -216,10 +202,7 @@ final class CloudThumbnailTokenTests: XCTestCase {
       await arrange(source)
       let stale = await loader.load(for: asset, from: source)
       XCTAssertEqual(stale, Data("v1".utf8), label)
-      await waitUntil {
-        let finished = await loader.staleRefreshFinished(forKey: key)
-        return await source.thumbCalls == 2 && finished
-      }
+      await waitUntil { finished.contains(key) }
 
       await source.setAnswersNothing(false)
       await source.setPlainFailure(false)

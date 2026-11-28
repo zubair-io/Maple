@@ -21,9 +21,6 @@ let thumbnailLoaderLogger = Logger(subsystem: "app.justmaple.aperture", category
 
 // MARK: - ThumbnailLoader
 
-/// Receives the bytes that replaced a cached thumbnail a cell is showing.
-public typealias ThumbnailUpdate = @MainActor @Sendable (Data) async -> Void
-
 public actor ThumbnailLoader {
   public static let shared = ThumbnailLoader()
 
@@ -60,12 +57,22 @@ public actor ThumbnailLoader {
   /// server again but never downloads them a second time.
   var unrenderableSourcelessKeys: Set<String> = []
 
-  /// Sourceless keys whose token-stale cached thumbnail was refetched, or is
-  /// being refetched, this launch. While in flight a key maps to the cells to
-  /// update with the new bytes.
+  /// Sourceless keys whose token-stale cached thumbnail was refetched, is
+  /// being refetched, or waits in `pendingStaleRefetches`, this launch.
   var staleRefreshedKeys: Set<String> = []
-  var staleRefreshObservers: [String: [ThumbnailUpdate]] = [:]
-  let staleRefreshSlots = BoundedAsyncSemaphore(value: 4)
+  /// Waiting refetches, newest last: the photo shown most recently goes first.
+  var pendingStaleRefetches: [StaleRefetch] = []
+  var runningStaleRefetches = 0
+  static let maxPendingStaleRefetches = 64
+  static let maxConcurrentStaleRefetches = 4
+  var staleRefreshDidFinish: (@Sendable (String) -> Void)?
+
+  struct StaleRefetch: Sendable {
+    let key: String
+    let ref: ImageRef
+    let source: any ImageSource
+    let token: String?
+  }
 
   /// Cap on concurrent fetches from a source whose thumbnails are
   /// latency-bound network reads (`ImageSource.thumbnailsAreLatencyBound`,
