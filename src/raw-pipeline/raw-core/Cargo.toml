@@ -35,8 +35,8 @@ libc = { version = "0.2", optional = true }
 # alpha quality) are reachable — `image`'s AvifEncoder wrapper exposes only
 # speed and quality. Same version `image/avif` already resolves; matching
 # `image`'s defaults are mirrored with `default-features = false`; `asm` is
-# enabled only on ARM64 non-Windows (target table below), where the C compiler
-# builds it. Elsewhere it would need `nasm`.
+# enabled in the target table below: ARM64 builds it with the C compiler,
+# x86_64 needs `nasm` 2.15+ on the build machine. Windows ARM64 stays off.
 ravif = { version = "0.13", optional = true, default-features = false }
 rgb = { version = "0.8", optional = true, default-features = false }
 imgref = { version = "1", optional = true }
@@ -62,10 +62,7 @@ serde.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tempfile = "3"
 
-# Building an ARM64 and an x86_64 target in ONE cargo invocation unifies
-# features and would turn the assembly on for x86_64 (needing `nasm`); the
-# xcframework script builds per triple, so this is safe today.
-[target.'cfg(all(target_arch = "aarch64", not(target_os = "windows")))'.dependencies]
+[target.'cfg(any(target_arch = "x86_64", all(target_arch = "aarch64", not(target_os = "windows"))))'.dependencies]
 ravif = { version = "0.13", optional = true, default-features = false, features = ["asm"] }
 
 # `pipeline::stage` reports process CPU time next to wall time (#5172).
@@ -98,7 +95,7 @@ stage-dump = ["dep:exr"]
 # — enable with `--features gpu`. Build-time only; no default impact.
 gpu = ["dep:raw-gpu"]
 # Pulls in the `image` crate's AVIF codec (`ravif`/`rav1e`: pure Rust, plus
-# C-compiled assembly on non-Windows ARM64) for thumbnails and exports. OFF by default; raw-ffi,
+# assembly on x86_64 and non-Windows ARM64) for thumbnails and exports. OFF by default; raw-ffi,
 # maple-pano and the shipping raw-wasm wrapper opt in explicitly.
 # Browser exports need encoding, while rav1d's native libc API cannot compile
 # for wasm32-unknown-unknown (#4197). Native avif retains encode + decode.

@@ -595,6 +595,9 @@ jobs:
             echo "::notice::tools/codegen.sh not present — skipping."
           fi
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: steps.probe.outputs.have_script == 'true'
+        run: bash tools/install-nasm.sh
       - name: Regenerate codegen outputs
         if: steps.probe.outputs.have_script == 'true'
         run: bash tools/codegen.sh
@@ -744,6 +747,8 @@ jobs:
             ~/.cargo/git
             src/raw-pipeline/target
           key: api-native-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: Build native RAW library for measured API tests
         run: bash src/api/scripts/build-raw-ffi.sh
 

@@ -371,7 +371,7 @@ dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
 dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 ```
 
-`build-windows.sh` supports **native Windows/MSVC builds only**. `WINDOWS_TARGET` defaults to the native Rust host: `x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`. The selected target must match `rustc -vV`'s host. Cross-compilation from macOS/Linux or between architectures is rejected before building. Install Cargo/Rust, the MSVC build tools and Windows SDK, .NET 8 SDK, Git Bash, and Python 3. Missing tools or outputs fail the build.
+`build-windows.sh` supports **native Windows/MSVC builds only**. `WINDOWS_TARGET` defaults to the native Rust host: `x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`. The selected target must match `rustc -vV`'s host. Cross-compilation from macOS/Linux or between architectures is rejected before building. Install Cargo/Rust, the MSVC build tools and Windows SDK, .NET 8 SDK, Git Bash, and Python 3. x64 builds also need `nasm` 2.15+ on `PATH` for the AV1 encoder's assembly (`choco install nasm`, or `bash tools/install-nasm.sh`). Missing tools or outputs fail the build.
 
 The wrapper regenerates declarations, explicitly targets both Rust builds, and selects the matching WinUI platform and runtime. Native artifacts live under `target/<triple>/release/` in their respective Rust workspaces. The application and its required `raw_ffi.dll` are verified under `src/windows/Maple.WinUI/bin/Release/<triple>/`. `CARGO_TARGET_DIR` cannot redirect those outputs.
 

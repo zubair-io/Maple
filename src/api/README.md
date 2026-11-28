@@ -9,6 +9,7 @@ Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 ### Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.3
+- For the native RAW library on x86_64: `nasm` ≥ 2.15 (`apt install nasm` or `brew install nasm`)
 - Node / npm (only needed to rebuild the Angular UI)
 
 - A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores), the operator's one-shots (mirror reconcile, face clustering, folder scans), folder imports, the per-asset pipeline stages (thumbnails, previews, EXIF, faces, search, …), the discover sweep that keeps the library in step with disk, and scheduled maintenance (trash purge, missing-file reaper, migrations, mirror upkeep, expired sign-in cleanup, the nightly database backup, …) on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.

@@ -31,6 +31,7 @@ on:
     paths:
       - 'src/maple/**'
       - 'src/raw-pipeline/**'
+      - 'tools/install-nasm.sh'
       - 'tools/native_package_cache.py'
       - 'tools/test_ci_native*.py'
       - 'src/apple/MapleUITests/Goldens/.calibration/**'
@@ -131,6 +132,9 @@ jobs:
           workspaces: src/raw-pipeline -> target
           key: ${{ matrix.target }}
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: startsWith(matrix.target, 'x86_64') && (steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true')
+        run: bash tools/install-nasm.sh
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
         if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         env:
@@ -243,6 +247,9 @@ jobs:
           workspaces: src/raw-pipeline -> target
           key: ${{ matrix.target }}
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: matrix.target == 'x86_64-apple-darwin' && (steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true')
+        run: bash tools/install-nasm.sh
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
         if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         run: |
@@ -336,6 +343,10 @@ jobs:
           workspaces: src/raw-pipeline -> target
           key: x86_64-pc-windows-msvc
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
+        shell: bash
+        run: bash tools/install-nasm.sh
       - name: Build raw_ffi (maple-win32-x64-msvc)
         if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         run: |

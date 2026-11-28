@@ -53,6 +53,8 @@ jobs:
             ~/.cargo/git
             src/raw-pipeline/target
           key: api-native-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       # The paired white-balance regression calls the real native decoder.
       # Build it before tests so a clean runner cannot pass by skipping FFI.
       - name: Build native RAW library for API integration tests
@@ -121,6 +123,8 @@ jobs:
             ~/.cargo/git
             src/raw-pipeline/target
           key: perf-gate-core-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: Build the benchmark binaries (release)
         working-directory: src/raw-pipeline
         run: |

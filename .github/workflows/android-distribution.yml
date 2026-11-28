@@ -75,6 +75,8 @@ jobs:
           workspaces: src/android/native -> target
           cache-on-failure: true
       - run: bash src/android/scripts/install-ci-sdk.sh
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: Build and verify signed APK and app bundle
         env:
           MAPLE_VERSION_CODE: ${{ steps.version.outputs.version_code }}

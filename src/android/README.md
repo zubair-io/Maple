@@ -196,6 +196,8 @@ preparation re-decodes the capture. Copy / Paste settings never moves spots.
 
 Requires JDK 21, Android SDK 36, Build Tools 36.0.0, NDK 28.2.13676358,
 CMake 3.22.1 and Rust's `aarch64-linux-android` target. Set `ANDROID_HOME`.
+Building the `x86_64` emulator ABI also needs `nasm` 2.15+ for the AV1
+encoder's assembly.
 
 ```sh
 ./gradlew --no-daemon -PmapleAbis=arm64-v8a assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug

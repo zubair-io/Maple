@@ -60,6 +60,8 @@ jobs:
         run: bun scripts/prewarm-temporal.ts
       - name: Install pinned Android SDK (bounded download recovery)
         run: bash src/android/scripts/install-ci-sdk.sh
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: Build arm64 and emulator APKs, JVM contracts and lint
         working-directory: src/android
         run: ./gradlew --no-daemon -PmapleAbis=arm64-v8a,x86_64 assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug

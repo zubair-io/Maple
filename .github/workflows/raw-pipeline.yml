@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - 'src/raw-pipeline/**'
+      - 'tools/install-nasm.sh'
       - 'tools/test_nlm_wasm_simd.py'
       - 'tools/fixtures/nlm_simd_witness.rs'
       - 'test-fixtures/pano-budgets.json'
@@ -58,6 +59,7 @@ on:
   pull_request:
     paths:
       - 'src/raw-pipeline/**'
+      - 'tools/install-nasm.sh'
       - 'tools/test_nlm_wasm_simd.py'
       - 'tools/fixtures/nlm_simd_witness.rs'
       - 'test-fixtures/pano-budgets.json'
@@ -150,6 +152,8 @@ jobs:
             ~/.cargo/git
             src/raw-pipeline/target
           key: raw-ffi-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: cargo build -p raw-ffi
         working-directory: src/raw-pipeline
         run: cargo build -p raw-ffi
@@ -398,6 +402,8 @@ jobs:
             exit 1
           }
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       # 1. Compile gate — the raw-ffi GPU FFI surface + raw-gpu + wgpu. No GPU
       #    required; this is what a bare `cargo build -p raw-ffi` (the
       #    build-raw-ffi job) deliberately does NOT cover.
@@ -589,6 +595,8 @@ jobs:
             ~/.cargo/git
             src/raw-pipeline/target
           key: rust-tests-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: cargo test -p raw-core (fixture-free)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features test-support
@@ -607,10 +615,48 @@ jobs:
       - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif --test avif_corruption
-      # Committed digests of the AV1 encoder's output (assembly off on x86_64).
-      - name: 'cargo test -p raw-core --features avif avif::golden_tests (encoder bytes)'
+      # Committed digests of the AV1 encoder's output, at every x86_64 level the
+      # encoder can pick at run time (a level above the runner's CPU falls back
+      # to the CPU's own); the digests were made with the assembly off.
+      - name: 'cargo test -p raw-core --features avif avif::golden_tests (encoder bytes, every CPU level)'
+        timeout-minutes: 30
         working-directory: src/raw-pipeline
-        run: cargo test -p raw-core --features avif --lib avif::golden_tests
+        run: |
+          echo "CPU: $(grep -m1 '^flags' /proc/cpuinfo | grep -o -w -E 'ssse3|sse4_1|avx2|avx512f|avx512vbmi2' | tr '\n' ' ')"
+          for level in rust sse2 ssse3 sse4_1 avx2 avx512 avx512icl; do
+            echo "== RAV1E_CPU_TARGET=$level"
+            RAV1E_CPU_TARGET=$level cargo test -p raw-core --features avif --lib avif::golden_tests
+          done
+          echo "== detected level"
+          cargo test -p raw-core --features avif --lib avif::golden_tests
+      # The labels are read when the job runs, not from the event that started it, so
+      # labelling a pull request and re-running this job is enough to get the numbers.
+      - name: Is this pull request labelled perf-timing
+        id: timing
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          labels=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" |
+            python3 -c 'import json, sys; print("\n".join(label["name"] for label in json.load(sys.stdin)))')
+          if grep -qx perf-timing <<<"$labels"; then echo "run=true" >> "$GITHUB_OUTPUT"; fi
+      - name: AV1 encode time, assembly against Rust routines (recorded, never a gate)
+        if: steps.timing.outputs.run == 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        working-directory: src/raw-pipeline
+        run: |
+          cargo test --release -p raw-core --features avif --lib avif::golden_tests --no-run
+          encode_all() { cargo test --release -q -p raw-core --features avif --lib avif::golden_tests >/dev/null; }
+          for round in 1 2 3 4 5; do
+            for level in rust detected; do
+              start=$(date +%s%N)
+              if [[ $level == rust ]]; then RAV1E_CPU_TARGET=rust encode_all; else encode_all; fi
+              echo "round $round, $level: $(( ($(date +%s%N) - start) / 1000000 )) ms for the 11 golden encodes"
+            done
+          done
       # The shared native/browser GPU host binding (#4317) compiles only with
       # `--features gpu`, which no step above enables.
       - name: 'cargo test -p raw-core --features gpu gpu_host (#4317)'
@@ -790,6 +836,9 @@ jobs:
             src/raw-pipeline/target
           key: raw-pipeline-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
 
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        if: steps.probe.outputs.have_fixtures == 'true'
+        run: bash tools/install-nasm.sh
       # One step for both branches: the harness's own discovery decides
       # whether the candidate phase runs (no fixtures → self-test + budgets
       # validation, then an explicit skip-pass with exit 0).

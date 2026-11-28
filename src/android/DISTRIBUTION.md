@@ -5,7 +5,8 @@ Return to the [Android guide](README.md).
 ## Build
 
 Requires JDK 21, Rust stable, Android SDK 36, Build Tools 36.0.0, NDK
-28.2.13676358, and CMake 3.22.1. Set `ANDROID_HOME` to the SDK directory. Install
+28.2.13676358, CMake 3.22.1, and `nasm` 2.15+ for the `x86_64` ABI's AV1 encoder
+assembly. Set `ANDROID_HOME` to the SDK directory. Install
 the Rust target once:
 
 ```sh

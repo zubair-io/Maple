@@ -443,6 +443,8 @@ jobs:
             ~/.cargo/git
             src/raw-pipeline/target
           key: web-workflow-native-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Install nasm (AV1 encoder x86_64 assembly, #6165)
+        run: bash tools/install-nasm.sh
       - name: Build real server workflow library
         run: |
           bash src/api/scripts/build-raw-ffi.sh
