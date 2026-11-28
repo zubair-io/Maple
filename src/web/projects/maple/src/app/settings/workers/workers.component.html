@@ -362,8 +362,9 @@
                       preview generation across CPU cores at the cost of more memory per worker —
                       each worker loads its own decoder and holds decode buffers. Only affects RAW
                       thumb/preview decode; JPEG and HEIC sources go through a separate
-                      already-multithreaded path. Default is 1; a value around your core count
-                      (typically 4) is a good starting point for faster ingest.
+                      already-multithreaded path. Default is 2 (1 when the memory budget is 0); a
+                      value around your core count (typically 4) is a good starting point for faster
+                      ingest.
                     </div>
                   </div>
                   @if (perf.decode_memory_budget; as budget) {

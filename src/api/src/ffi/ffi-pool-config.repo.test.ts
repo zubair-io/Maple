@@ -10,6 +10,7 @@ import {
   MAX_DECODE_MEMORY_BUDGET_PERCENT,
   MAX_FFI_WORKERS,
   MIN_FFI_WORKERS,
+  UNCAPPED_DEFAULT_FFI_WORKERS,
   clampFfiWorkers,
   loadPerformanceConfig,
   resolveFfiPoolConfig,
@@ -35,10 +36,10 @@ describe('clampFfiWorkers', () => {
 });
 
 describe('resolveFfiPoolConfig — precedence', () => {
-  it('defaults to 1 when no DB row and no env var', () => {
+  it('defaults to 2 when no DB row and no env var', () => {
     const r = resolveFfiPoolConfig(null, {});
     expect(r.ffi_workers).toBe(DEFAULT_FFI_WORKERS);
-    expect(r.ffi_workers).toBe(1);
+    expect(r.ffi_workers).toBe(2);
     expect(r.source.ffi_workers).toBe('default');
   });
 
@@ -118,6 +119,29 @@ describe('decode memory budget percent (#5467)', () => {
     const r = resolveFfiPoolConfig({ decode_memory_budget_percent: 0 }, {});
     expect(r.decode_memory_budget_percent).toBe(0);
     expect(r.source.decode_memory_budget_percent).toBe('db');
+  });
+
+  it('runs one worker by default when the budget is 0, since nothing then caps a second develop', () => {
+    const r = resolveFfiPoolConfig({ decode_memory_budget_percent: 0 }, {});
+    expect(r.ffi_workers).toBe(UNCAPPED_DEFAULT_FFI_WORKERS);
+    expect(r.ffi_workers).toBe(1);
+    expect(r.source.ffi_workers).toBe('default');
+  });
+
+  it('keeps a saved or env worker count when the budget is 0', () => {
+    expect(
+      resolveFfiPoolConfig({ decode_memory_budget_percent: 0, ffi_workers: 3 }, {}).ffi_workers,
+    ).toBe(3);
+    expect(
+      resolveFfiPoolConfig({ decode_memory_budget_percent: 0 }, { MAPLE_FFI_WORKERS: '4' })
+        .ffi_workers,
+    ).toBe(4);
+  });
+
+  it('keeps the default of 2 under a non-zero saved budget', () => {
+    expect(resolveFfiPoolConfig({ decode_memory_budget_percent: 5 }, {}).ffi_workers).toBe(
+      DEFAULT_FFI_WORKERS,
+    );
   });
 
   it('clamps a hand-edited value into range', () => {

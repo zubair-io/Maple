@@ -2,7 +2,7 @@
 
 Instrumentation slice #3721 supported the #3527 decision, which has since
 landed: bitmap renders + AVIF validations ride a pinned single-child bitmap
-lane, while RAW decodes ride the operator-sized RAW lane (default 1). Each
+lane, while RAW decodes ride the operator-sized RAW lane (default 2). Each
 lane is FIFO; there is no shared queue anymore. This harness is unchanged and
 still valid — `workers` now means RAW-lane width, and the bitmap requests
 measure the bitmap lane's own (short) queue. There are no committed benchmark

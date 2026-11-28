@@ -132,7 +132,7 @@ describe('decode memory budget (#5467)', () => {
         live: unknown;
       };
     };
-    expect(body.ffi_workers).toBe(1);
+    expect(body.ffi_workers).toBe(2);
     expect(body.decode_memory_budget.percent).toBe(35);
     expect(body.decode_memory_budget.source).toBe('db');
     expect(body.decode_memory_budget.budget_bytes).toBe(
