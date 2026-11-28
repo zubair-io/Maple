@@ -31,6 +31,7 @@ final class LocalNetworkReprobeTests: XCTestCase {
     let activityFactory = notifications ? activityStream : nil
     let resolver = LocalNetworkResolver(
       statusProvider: { identity, _ in await status.provide(for: identity) },
+      routeConfirmer: { _, _ in false },
       pathChanges: { paths }, activityChanges: activityFactory,
       initiallyActive: initiallyActive,
       registeredServers: { servers.value },
@@ -198,7 +199,7 @@ final class LocalNetworkReprobeTests: XCTestCase {
     XCTAssertEqual(calls, 2)
   }
 
-  func test_aWaiterIsReleasedWithThePublicAddressWhenProbesKeepBeingReplaced() async {
+  func test_aWaiterIsReleasedAtTheCapAndTheCachedRouteIsKeptWhenProbesKeepBeingReplaced() async {
     let rig = makeRig()
     await settle(rig, resolving: identity, call: 1, to: lan)
     XCTAssertEqual(rig.resolver.effectiveURL(for: identity), lan)
@@ -229,7 +230,10 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await rig.sleeps.release(.seconds(10))
     let waiterReleased = await pollUntil { released.value }
     XCTAssertTrue(waiterReleased)
-    XCTAssertEqual(rig.resolver.effectiveURL(for: identity), identity)
+    XCTAssertEqual(rig.resolver.effectiveURL(for: identity), lan)
+    XCTAssertEqual(
+      rig.resolver.status(for: identity),
+      LocalNetworkStatus(localURL: lan, isConnectedLocally: true))
     await rig.status.releaseEverything(with: identity)
   }
 

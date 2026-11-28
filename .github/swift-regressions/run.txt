@@ -644,7 +644,9 @@ ScrollRunFolderTests
 # Lazy Browse edit sessions (#6130): the per-photo observed buffer that holds
 # scrolled-past cells' sessions outside the shared dictionary. Pure in-memory.
 BrowseSessionBufferTests
-# LAN candidates probed concurrently (#6036): injected probes, no network.
-LocalNetworkConcurrentProbeTests
+# LAN candidates probed in order, address only after the hostname fails (#6181): injected probes, no network.
+LocalNetworkCandidateOrderTests
+# A working LAN route survives a re-check; no status published mid-probe (#6181): injected probes and clock.
+LocalNetworkKeepRouteTests
 # Network-path-change re-probe of LAN addresses (#6036): injected probes, activity and clock.
 LocalNetworkReprobeTests

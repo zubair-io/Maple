@@ -112,15 +112,10 @@ public enum LocalNetworkResolving {
     // certificate is never reused or trusted for the IP fallback.
     let probeCandidate: CandidateProbe =
       probe ?? { endpoint in
-        guard let candidate = endpoint.url,
-          let confirmed = await fetchReport(
-            url: candidate.appending(path: "/api/network/local-address"), session: session,
-            timeout: probeTimeout)
-        else { return false }
-        return confirmed.candidates.contains(endpoint)
+        await confirm(endpoint, session: session, timeout: probeTimeout)
       }
     guard
-      let winner = await firstPreferredSuccess(of: candidates, probe: probeCandidate),
+      let winner = await firstAnsweringCandidate(of: candidates, probe: probeCandidate),
       let url = winner.url
     else {
       return (
@@ -130,21 +125,42 @@ public enum LocalNetworkResolving {
     return (url, LocalNetworkStatus(localURL: url, isConnectedLocally: true))
   }
 
-  // Preference order wins even when a later candidate answers sooner, so the
-  // chosen route is the one a probe-one-then-the-next loop would pick.
-  static func firstPreferredSuccess(
-    of endpoints: [LocalHttpsEndpoint], probe: @escaping CandidateProbe
-  ) async -> LocalHttpsEndpoint? {
-    let attempts = endpoints.map { endpoint in Task { await probe(endpoint) } }
-    return await withTaskCancellationHandler {
-      for (endpoint, attempt) in zip(endpoints, attempts) where await attempt.value {
-        for other in attempts { other.cancel() }
-        return endpoint
-      }
-      return nil
-    } onCancel: {
-      for attempt in attempts { attempt.cancel() }
+  /// Whether the server answering at `route` still advertises `route` itself:
+  /// the same check a fresh resolution applies to a candidate, used to keep a
+  /// working LAN route without running a resolution.
+  static func confirmRoute(
+    _ route: URL, probeTimeout: TimeInterval = 1.5, session: URLSession = .shared
+  ) async -> Bool {
+    guard let scheme = route.scheme, let host = route.host, let port = route.port else {
+      return false
     }
+    return await confirm(
+      LocalHttpsEndpoint(ip: host, port: port, scheme: scheme), session: session,
+      timeout: probeTimeout)
+  }
+
+  private static func confirm(
+    _ endpoint: LocalHttpsEndpoint, session: URLSession, timeout: TimeInterval
+  ) async -> Bool {
+    guard let candidate = endpoint.url,
+      let confirmed = await fetchReport(
+        url: candidate.appending(path: "/api/network/local-address"), session: session,
+        timeout: timeout)
+    else { return false }
+    return confirmed.candidates.contains(endpoint)
+  }
+
+  // Candidates are tried strictly in order, so the legacy address is only
+  // contacted after the hostname failed: probing it while the hostname
+  // answers could raise the Local Network permission prompt for no benefit.
+  static func firstAnsweringCandidate(
+    of endpoints: [LocalHttpsEndpoint], probe: CandidateProbe
+  ) async -> LocalHttpsEndpoint? {
+    for endpoint in endpoints {
+      guard !Task.isCancelled else { return nil }
+      if await probe(endpoint) { return endpoint }
+    }
+    return nil
   }
 
   private static func fetchReport(
@@ -168,6 +184,7 @@ public enum LocalNetworkResolving {
 public final class LocalNetworkResolver {
   typealias StatusProvider =
     @Sendable (URL, URLSession) async -> (effectiveURL: URL, status: LocalNetworkStatus)
+  typealias RouteConfirmer = @Sendable (URL, URLSession) async -> Bool
   typealias Sleeper = @Sendable (Duration) async throws -> Void
 
   public static let shared = LocalNetworkResolver(
@@ -190,6 +207,7 @@ public final class LocalNetworkResolver {
   private var pendingPathReprobe: Task<Void, Never>?
 
   private let statusProvider: StatusProvider
+  private let routeConfirmer: RouteConfirmer
   private let pathChanges: (@Sendable () -> AsyncStream<Void>)?
   private let activityChanges: (@Sendable () -> AsyncStream<Bool>)?
   private let registeredServers: @MainActor @Sendable () -> [URL]
@@ -207,6 +225,9 @@ public final class LocalNetworkResolver {
     statusProvider: @escaping StatusProvider = { identity, session in
       await LocalNetworkResolving.resolveStatus(identity: identity, session: session)
     },
+    routeConfirmer: @escaping RouteConfirmer = { route, session in
+      await LocalNetworkResolving.confirmRoute(route, session: session)
+    },
     pathChanges: (@Sendable () -> AsyncStream<Void>)?,
     activityChanges: (@Sendable () -> AsyncStream<Bool>)? = nil,
     initiallyActive: Bool = true,
@@ -218,6 +239,7 @@ public final class LocalNetworkResolver {
     sleeper: @escaping Sleeper = { try await Task.sleep(for: $0) }
   ) {
     self.statusProvider = statusProvider
+    self.routeConfirmer = routeConfirmer
     self.pathChanges = pathChanges
     self.activityChanges = activityChanges
     self.isAppActive = initiallyActive
@@ -248,7 +270,7 @@ public final class LocalNetworkResolver {
   public func settledEffectiveURL(
     for identity: URL, waitingAtMost limit: Duration = .milliseconds(500)
   ) async -> URL {
-    await awaitNewestProbe(identity.absoluteString, upTo: limit, fallingBackToIdentity: false)
+    await awaitNewestProbe(identity.absoluteString, upTo: limit)
     return effectiveURL(for: identity)
   }
 
@@ -261,7 +283,7 @@ public final class LocalNetworkResolver {
     knownServers[key] = (identity, session)
     observeIfNeeded()
     if probes[key] == nil { startProbe(identity: identity, session: session) }
-    await awaitNewestProbe(key, upTo: resolveWaitCap, fallingBackToIdentity: true)
+    await awaitNewestProbe(key, upTo: resolveWaitCap)
   }
 
   private func startProbe(identity: URL, session: URLSession) {
@@ -271,22 +293,41 @@ public final class LocalNetworkResolver {
     probeStartedAt[key] = generation
     probes[key]?.cancel()
     let provider = statusProvider
+    let confirmer = routeConfirmer
+    let workingRoute = statuses[key]?.isConnectedLocally == true ? resolved[key] : nil
     probes[key] = Task {
-      let result = await provider(identity, session)
+      // A route that still answers is kept as is: no resolution runs and
+      // nothing is published until the route is proven dead.
+      let routeStillAnswers: Bool
+      if let workingRoute {
+        routeStillAnswers = await confirmer(workingRoute, session)
+      } else {
+        routeStillAnswers = false
+      }
+      guard isNewestProbe(key, generation) else { return }
+      let result = routeStillAnswers ? nil : await provider(identity, session)
       // A cancelled probe can still finish; it must not overwrite the newer one.
-      guard probeStartedAt[key] == generation, generation > lastPathChange else { return }
-      resolved[key] = result.effectiveURL
-      statuses[key] = result.status
+      guard isNewestProbe(key, generation) else { return }
+      if let result { publish(result, for: key) }
       probes[key] = nil
       for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume() }
     }
   }
 
-  /// Waits at most `limit` for the newest probe of `key`; on timeout a resolve
-  /// caller falls back to the public address.
-  private func awaitNewestProbe(
-    _ key: String, upTo limit: Duration, fallingBackToIdentity: Bool
-  ) async {
+  private func isNewestProbe(_ key: String, _ generation: Int) -> Bool {
+    probeStartedAt[key] == generation && generation > lastPathChange
+  }
+
+  private func publish(
+    _ result: (effectiveURL: URL, status: LocalNetworkStatus), for key: String
+  ) {
+    if resolved[key] != result.effectiveURL { resolved[key] = result.effectiveURL }
+    if statuses[key] != result.status { statuses[key] = result.status }
+  }
+
+  /// Waits at most `limit` for the newest probe of `key`. Giving up leaves the
+  /// cached route and status untouched; the probe keeps running.
+  private func awaitNewestProbe(_ key: String, upTo limit: Duration) async {
     guard probes[key] != nil || (reprobeDue && knownServers[key] != nil) else { return }
     let sleep = sleeper
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -295,10 +336,6 @@ public final class LocalNetworkResolver {
       waiter.deadline = Task {
         guard (try? await sleep(limit)) != nil, !Task.isCancelled, waiter.isPending else { return }
         waiters[key]?.removeAll { $0 === waiter }
-        if fallingBackToIdentity {
-          resolved[key] = nil
-          statuses[key] = LocalNetworkStatus(localURL: nil, isConnectedLocally: false)
-        }
         waiter.resume()
       }
     }
