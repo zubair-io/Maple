@@ -299,7 +299,6 @@ struct AppShellCenterColumn: View {
           if layout == .phone {
             LibraryGrid(
               vm: browseVM,
-              source: browseVM.currentSource,
               sessions: $sessions,
               sessionBuffer: sessionBuffer,
               displayMode: $browseDisplayMode,
