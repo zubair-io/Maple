@@ -206,6 +206,7 @@ public final class LocalNetworkResolver {
   private var everRegistered: Set<String> = []
   private var eventCounter = 0
   private var probeStartedAt: [String: Int] = [:]
+  private var recheckKeys: Set<String> = []
   private var lastPathChange = 0
   private(set) var reprobeDue = false
   private var isAppActive: Bool
@@ -288,15 +289,20 @@ public final class LocalNetworkResolver {
       everRegistered.insert(Self.normalizedIdentity(identity))
     }
     observeIfNeeded()
-    if probes[key] == nil { startProbe(identity: identity, session: session) }
+    if probes[key] == nil {
+      startProbe(identity: identity, session: session)
+    } else {
+      recheckKeys.remove(key)
+    }
     await awaitNewestProbe(key, upTo: resolveWaitCap)
   }
 
-  private func startProbe(identity: URL, session: URLSession) {
+  private func startProbe(identity: URL, session: URLSession, isRecheck: Bool = false) {
     let key = identity.absoluteString
     eventCounter += 1
     let generation = eventCounter
     probeStartedAt[key] = generation
+    if isRecheck { recheckKeys.insert(key) } else { recheckKeys.remove(key) }
     probes[key]?.cancel()
     let provider = statusProvider
     let confirmer = routeConfirmer
@@ -315,6 +321,7 @@ public final class LocalNetworkResolver {
       guard isNewestProbe(key, generation) else { return }
       if let result { publish(result, for: key) }
       probes[key] = nil
+      recheckKeys.remove(key)
       for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume() }
     }
   }
@@ -383,6 +390,7 @@ public final class LocalNetworkResolver {
     reprobeDue = true
     for probe in probes.values { probe.cancel() }
     probes.removeAll()
+    recheckKeys.removeAll()
     pendingPathReprobe?.cancel()
     guard isAppActive else { return }
     let wait = pathDebounce
@@ -399,7 +407,19 @@ public final class LocalNetworkResolver {
       reprobeIfDue()
     } else {
       pendingPathReprobe?.cancel()
+      deferRunningRechecks()
     }
+  }
+
+  // A re-check still running in the background could go on to probe the LAN address with nothing on screen.
+  private func deferRunningRechecks() {
+    for key in recheckKeys {
+      probes.removeValue(forKey: key)?.cancel()
+      probeStartedAt[key] = nil
+      reprobeDue = true
+      for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume() }
+    }
+    recheckKeys.removeAll()
   }
 
   // Probing while inactive can raise the Local Network prompt with nothing on screen, so a change then only marks a re-probe due.
@@ -418,11 +438,13 @@ public final class LocalNetworkResolver {
       resolved[key] = nil
       statuses[key] = nil
       probeStartedAt[key] = nil
+      recheckKeys.remove(key)
       probes.removeValue(forKey: key)?.cancel()
       for waiter in waiters.removeValue(forKey: key) ?? [] { waiter.resume() }
     }
     for (key, server) in knownServers where (probeStartedAt[key] ?? 0) < lastPathChange {
-      startProbe(identity: server.identity, session: server.session)
+      let hasResolveWaiting = waiters[key]?.isEmpty == false
+      startProbe(identity: server.identity, session: server.session, isRecheck: !hasResolveWaiting)
     }
   }
 }

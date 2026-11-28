@@ -306,6 +306,53 @@ final class LocalNetworkReprobeTests: XCTestCase {
     await rig.status.releaseEverything(with: identity)
   }
 
+  func test_leavingTheForegroundDuringARecheckDefersItToTheNextActivation() async {
+    let rig = makeRig()
+    await settle(rig, resolving: identity, call: 1, to: identity)
+    rig.paths.yield()
+    let debounced = await rig.sleeps.waitForStarted(1, of: debounce)
+    XCTAssertTrue(debounced)
+    await rig.sleeps.release(debounce)
+    let rechecking = await rig.status.waitForCalls(2)
+    XCTAssertTrue(rechecking)
+
+    rig.activity.yield(false)
+    let deferred = await pollUntil { rig.resolver.reprobeDue }
+    XCTAssertTrue(deferred)
+    await rig.status.release(call: 2, with: lan)
+    await yieldABunch()
+    XCTAssertEqual(
+      rig.resolver.effectiveURL(for: identity), identity,
+      "the re-check cancelled in the background publishes nothing")
+
+    rig.activity.yield(true)
+    let resumed = await rig.status.waitForCalls(3)
+    XCTAssertTrue(resumed)
+    await rig.status.release(call: 3, with: lan)
+    let applied = await pollUntil { self.hasEffectiveURL(self.lan, in: rig) }
+    XCTAssertTrue(applied)
+  }
+
+  func test_aResolveThatJoinedARecheckKeepsItsProbeInTheBackground() async {
+    let rig = makeRig()
+    await settle(rig, resolving: identity, call: 1, to: identity)
+    rig.paths.yield()
+    let debounced = await rig.sleeps.waitForStarted(1, of: debounce)
+    XCTAssertTrue(debounced)
+    await rig.sleeps.release(debounce)
+    let rechecking = await rig.status.waitForCalls(2)
+    XCTAssertTrue(rechecking)
+    let joined = Task { await rig.resolver.resolve(identity: identity) }
+    await yieldABunch()
+
+    rig.activity.yield(false)
+    await yieldABunch()
+    await rig.status.release(call: 2, with: lan)
+    await joined.value
+    XCTAssertEqual(rig.resolver.effectiveURL(for: identity), lan)
+    XCTAssertFalse(rig.resolver.reprobeDue)
+  }
+
   func test_aResolverSeededActiveReprobesOnTheFirstPathChange() async {
     let rig = makeRig(notifications: false)
     await settle(rig, resolving: identity, call: 1, to: identity)
